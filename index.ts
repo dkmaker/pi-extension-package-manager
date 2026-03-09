@@ -643,8 +643,7 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      ctx.ui.notify("📦 Syncing package pool...", "info");
-      const result = gitSyncPool();
+      const result = gitSyncPool((msg) => ctx.ui.notify(msg, "info"));
       ctx.ui.notify(`📦 ${result.message}`, result.pushed ? "info" : "warning");
     },
   });

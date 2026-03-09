@@ -49,8 +49,9 @@ export function gitInitPool(remote: string): void {
 // Sync (push/pull)
 // ============================================================================
 
-export function gitSyncPool(): { pulled: boolean; pushed: boolean; message: string } {
+export function gitSyncPool(onProgress?: (msg: string) => void): { pulled: boolean; pushed: boolean; message: string } {
   const result = { pulled: false, pushed: false, message: "" };
+  const progress = onProgress || (() => {});
 
   if (!isGitEnabled()) {
     result.message = "Git is not enabled for the package pool. Use /packages-git-init <remote> first.";
@@ -58,18 +59,23 @@ export function gitSyncPool(): { pulled: boolean; pushed: boolean; message: stri
   }
 
   // Stage any changes
+  progress("📦 Staging changes...");
   execSync("git add -A", { cwd: PKG_MGR_ROOT, stdio: "pipe" });
 
   // Commit if there are changes
   try {
     const status = execSync("git status --porcelain", { cwd: PKG_MGR_ROOT, encoding: "utf-8" }).trim();
     if (status) {
+      progress("📦 Committing local changes...");
       execSync('git commit -m "Package manager sync"', { cwd: PKG_MGR_ROOT, stdio: "pipe" });
+    } else {
+      progress("📦 No local changes to commit.");
     }
   } catch {}
 
   // Pull with rebase
   try {
+    progress("📦 Pulling from remote...");
     execSync("git pull --rebase origin main 2>/dev/null || git pull --rebase origin master 2>/dev/null || true", {
       cwd: PKG_MGR_ROOT,
       stdio: "pipe",
@@ -83,6 +89,7 @@ export function gitSyncPool(): { pulled: boolean; pushed: boolean; message: stri
 
   // Push
   try {
+    progress("📦 Pushing to remote...");
     execSync("git push -u origin HEAD", { cwd: PKG_MGR_ROOT, stdio: "pipe" });
     result.pushed = true;
     result.message = "Synced successfully.";
