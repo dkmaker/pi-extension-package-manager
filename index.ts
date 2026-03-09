@@ -452,6 +452,7 @@ export default function (pi: ExtensionAPI) {
         ``,
         `**Step 1 — Review the source:**`,
         `- Read the files at the path. If it's a directory, list contents and read key files`,
+        `- If a single file is given, check its parent directory — it may be part of a larger package (look for package.json, other .ts/.js files, imports). If so, onboard the whole directory instead.`,
         `- Determine what pi components it contains:`,
         `  • Extensions — .ts/.js files, \`extensions/\` dir, or \`pi.extensions\` in package.json`,
         `  • Skills — SKILL.md files, \`skills/\` dir, or \`pi.skills\` in package.json`,
