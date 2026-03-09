@@ -108,7 +108,76 @@ export function validatePackage(name: string): ValidationResult {
     }
   }
 
-  // 5. Check dependencies
+  // 5. Validate skills (SKILL.md frontmatter, name matches folder)
+  if (resources.skills.length > 0) {
+    for (const skillPath of resources.skills) {
+      const skillDir = existsSync(join(skillPath, "SKILL.md")) ? skillPath : null;
+      if (!skillDir) continue;
+
+      const folderName = skillDir.split("/").pop() || "";
+      const skillMdPath = join(skillDir, "SKILL.md");
+      let content: string;
+      try {
+        content = readFileSync(skillMdPath, "utf-8");
+      } catch {
+        result.valid = false;
+        result.errors.push(`Cannot read ${shortPath(skillMdPath, dir)}`);
+        continue;
+      }
+
+      // Parse frontmatter
+      const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+      if (!fmMatch) {
+        result.warnings.push(`Skill ${folderName}: missing frontmatter in SKILL.md`);
+        continue;
+      }
+
+      const fm = fmMatch[1];
+      const nameMatch = fm.match(/^name:\s*(.+)$/m);
+      const descMatch = fm.match(/^description:\s*(.+)$/m);
+      const skillName = nameMatch ? nameMatch[1].trim() : null;
+      const skillDesc = descMatch ? descMatch[1].trim() : null;
+
+      // Name must match folder
+      if (!skillName) {
+        result.valid = false;
+        result.errors.push(`Skill ${folderName}: missing "name" in frontmatter`);
+      } else if (skillName !== folderName) {
+        result.valid = false;
+        result.errors.push(`Skill name mismatch: frontmatter name "${skillName}" ≠ folder name "${folderName}"`);
+      } else {
+        result.info.push(`✓ Skill "${skillName}" name matches folder`);
+      }
+
+      // Name format validation
+      if (skillName) {
+        if (skillName.length > 64) {
+          result.warnings.push(`Skill "${skillName}": name exceeds 64 characters`);
+        }
+        if (/[^a-z0-9-]/.test(skillName)) {
+          result.warnings.push(`Skill "${skillName}": name contains invalid characters (use lowercase alphanumeric and hyphens)`);
+        }
+        if (/^-|-$/.test(skillName)) {
+          result.warnings.push(`Skill "${skillName}": name starts or ends with hyphen`);
+        }
+        if (/--/.test(skillName)) {
+          result.warnings.push(`Skill "${skillName}": name has consecutive hyphens`);
+        }
+      }
+
+      // Description is required (skills without it won't load)
+      if (!skillDesc) {
+        result.valid = false;
+        result.errors.push(`Skill ${folderName}: missing "description" in frontmatter — skill will NOT load without it`);
+      } else if (skillDesc.length > 1024) {
+        result.warnings.push(`Skill "${skillName}": description exceeds 1024 characters`);
+      } else {
+        result.info.push(`✓ Skill "${skillName || folderName}": has description`);
+      }
+    }
+  }
+
+  // 6. Check dependencies
   if (pkg?.dependencies && Object.keys(pkg.dependencies).length > 0) {
     const nodeModules = join(dir, "node_modules");
     if (!existsSync(nodeModules)) {
@@ -119,7 +188,7 @@ export function validatePackage(name: string): ValidationResult {
     }
   }
 
-  // 6. Try jiti load for extensions
+  // 7. Try jiti load for extensions
   if (resources.extensions.length > 0) {
     for (const ext of resources.extensions) {
       try {
@@ -134,7 +203,7 @@ export function validatePackage(name: string): ValidationResult {
     }
   }
 
-  // 7. Check it's registered
+  // 8. Check it's registered
   const allPkgs = listPackages();
   const registered = allPkgs.find(p => p.name === name);
   if (!registered) {
