@@ -552,7 +552,7 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId, params) {
       const { name } = params;
-      const result = validatePackage(name);
+      const result = await validatePackage(name);
 
       const lines: string[] = [
         `📦 Validation: ${name} — ${result.valid ? "✅ PASS" : "❌ FAIL"}`,

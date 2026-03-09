@@ -16,7 +16,7 @@ export interface ValidationResult {
   info: string[];
 }
 
-export function validatePackage(name: string): ValidationResult {
+export async function validatePackage(name: string): Promise<ValidationResult> {
   const result: ValidationResult = {
     valid: true,
     name,
@@ -202,16 +202,20 @@ export function validatePackage(name: string): ValidationResult {
 
   // 7. Try jiti load for extensions
   if (resources.extensions.length > 0) {
-    for (const ext of resources.extensions) {
-      try {
-        const { createJiti } = require("@mariozechner/jiti") as any;
-        const jiti = createJiti(ext);
-        jiti(ext);
-        result.info.push(`✓ jiti load OK: ${shortPath(ext, dir)}`);
-      } catch (e: any) {
-        result.valid = false;
-        result.errors.push(`jiti load failed for ${shortPath(ext, dir)}: ${e.message}`);
+    try {
+      const { createJiti } = await import("@mariozechner/jiti");
+      for (const ext of resources.extensions) {
+        try {
+          const jiti = (createJiti as any)(ext);
+          jiti(ext);
+          result.info.push(`✓ jiti load OK: ${shortPath(ext, dir)}`);
+        } catch (e: any) {
+          result.valid = false;
+          result.errors.push(`jiti load failed for ${shortPath(ext, dir)}: ${e.message}`);
+        }
       }
+    } catch {
+      result.warnings.push("Could not load jiti — skipping extension load check");
     }
   }
 
