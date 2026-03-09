@@ -45,6 +45,11 @@ export default function (pi: ExtensionAPI) {
   // ── Session start: status + background update check ─────────────────────
   pi.on("session_start", async (_event, ctx) => {
     const cwd = process.cwd();
+
+    // Always regenerate repo package to pick up any package changes
+    generatePackageJson(cwd);
+    ensurePackageInSettings(cwd);
+
     const allPkgs = userPackages();
     const manifest = loadRepoManifest(cwd);
     const enabledCount = manifest.enabled.length;
