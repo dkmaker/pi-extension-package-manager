@@ -202,9 +202,25 @@ export async function validatePackage(name: string): Promise<ValidationResult> {
 
   // 7. Try jiti load for extensions — check syntax, imports, and default export
   if (resources.extensions.length > 0) {
+    let jitiModule: any = null;
+
+    // Try to find @mariozechner/jiti — it's a pi internal dependency.
+    // Dynamic import() resolves from this file's location, so we need to
+    // locate it via pi's install path using createRequire.
     try {
-      const { createJiti } = await import("@mariozechner/jiti");
-      const jiti = (createJiti as any)(import.meta.url);
+      jitiModule = await import("@mariozechner/jiti");
+    } catch {
+      // Fallback: resolve from pi-coding-agent's node_modules
+      try {
+        const { createRequire } = await import("module");
+        const piPkgPath = createRequire(import.meta.url).resolve("@mariozechner/pi-coding-agent");
+        const piRequire = createRequire(piPkgPath);
+        jitiModule = piRequire("@mariozechner/jiti");
+      } catch {}
+    }
+
+    if (jitiModule?.createJiti) {
+      const jiti = (jitiModule.createJiti as any)(import.meta.url);
       for (const ext of resources.extensions) {
         try {
           const mod = jiti(ext);
@@ -220,7 +236,7 @@ export async function validatePackage(name: string): Promise<ValidationResult> {
           result.errors.push(`jiti load failed for ${shortPath(ext, dir)}: ${msg}`);
         }
       }
-    } catch {
+    } else {
       result.warnings.push("Could not load jiti — skipping extension load check");
     }
   }
