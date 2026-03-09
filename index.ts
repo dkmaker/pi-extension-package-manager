@@ -478,7 +478,7 @@ export default function (pi: ExtensionAPI) {
           ``,
           `Step 2 — After user confirms, do the onboard yourself:`,
           `- Copy/move the source into ${poolDir}/<name>/ — EXCLUDE node_modules/ (never copy it)`,
-          `- Ensure it has a valid package.json with "keywords": ["pi-package"] and a pi manifest`,
+          `- Ensure it has a valid package.json with "keywords": ["pi-package"] and a pi manifest. The "keywords": ["pi-package"] is REQUIRED — always include it.`,
           `- Ensure .gitignore includes node_modules/`,
           `- Do NOT run npm install — the register tool handles dependency installation`,
           `- Disable the original source so it won't conflict (rename .ts files to .ts.bak, or rename the folder with a .bak suffix). NEVER delete originals — always back up.`,
