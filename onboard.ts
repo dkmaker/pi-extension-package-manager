@@ -177,14 +177,26 @@ export function validatePackage(name: string): ValidationResult {
     }
   }
 
-  // 6. Check dependencies
+  // 6. Check dependencies and node_modules gitignore
+  const nodeModulesDir = join(dir, "node_modules");
   if (pkg?.dependencies && Object.keys(pkg.dependencies).length > 0) {
-    const nodeModules = join(dir, "node_modules");
-    if (!existsSync(nodeModules)) {
+    if (!existsSync(nodeModulesDir)) {
       result.valid = false;
       result.errors.push("Has dependencies but node_modules/ is missing — run npm install");
     } else {
       result.info.push(`Dependencies installed (${Object.keys(pkg.dependencies).length})`);
+    }
+  }
+
+  if (existsSync(nodeModulesDir)) {
+    const gitignorePath = join(dir, ".gitignore");
+    let gitignoreContent = "";
+    try { gitignoreContent = readFileSync(gitignorePath, "utf-8"); } catch {}
+    if (!gitignoreContent.includes("node_modules")) {
+      result.valid = false;
+      result.errors.push("node_modules/ exists but is not in .gitignore — must be gitignored");
+    } else {
+      result.info.push("✓ node_modules/ is gitignored");
     }
   }
 
