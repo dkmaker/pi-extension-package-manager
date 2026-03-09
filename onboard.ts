@@ -200,18 +200,21 @@ export async function validatePackage(name: string): Promise<ValidationResult> {
     }
   }
 
-  // 7. Try jiti load for extensions
+  // 7. Try jiti load for extensions (syntax/import check only)
   if (resources.extensions.length > 0) {
     try {
       const { createJiti } = await import("@mariozechner/jiti");
+      const jiti = (createJiti as any)(import.meta.url);
       for (const ext of resources.extensions) {
         try {
-          const jiti = (createJiti as any)(ext);
+          // Load via jiti to check syntax and imports resolve
+          // This validates TypeScript compiles and dependencies are found
           jiti(ext);
           result.info.push(`✓ jiti load OK: ${shortPath(ext, dir)}`);
         } catch (e: any) {
+          const msg = e.message?.split("\n")[0] || String(e);
           result.valid = false;
-          result.errors.push(`jiti load failed for ${shortPath(ext, dir)}: ${e.message}`);
+          result.errors.push(`jiti load failed for ${shortPath(ext, dir)}: ${msg}`);
         }
       }
     } catch {
