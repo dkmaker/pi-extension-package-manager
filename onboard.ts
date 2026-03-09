@@ -1,5 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "fs";
-import { join, resolve, extname } from "path";
+import { join, resolve, dirname, extname } from "path";
+import { createRequire } from "module";
+import Module from "module";
 import { PACKAGES_DIR } from "./constants.js";
 import { packageDir, listPackages } from "./registry.js";
 import { resolvePackageResources } from "./store.js";
@@ -203,38 +205,58 @@ export async function validatePackage(name: string): Promise<ValidationResult> {
   // 7. Try jiti load for extensions — check syntax, imports, and default export
   if (resources.extensions.length > 0) {
     let jitiModule: any = null;
+    let piNodeModules: string | null = null;
 
-    // Try to find @mariozechner/jiti — it's a pi internal dependency.
-    // Dynamic import() resolves from this file's location, so we need to
-    // locate it via pi's install path using createRequire.
+    // Find pi's install path so we can resolve jiti and peer deps.
+    // Extensions import @sinclair/typebox etc. which live in pi's node_modules,
+    // so we need to patch Module._resolveFilename to fall back there.
     try {
-      jitiModule = await import("@mariozechner/jiti");
+      // pi is installed globally — find it via its binary
+      const piCli = require("child_process").execSync("readlink -f $(which pi)", { encoding: "utf-8" }).trim();
+      const piRoot = dirname(dirname(piCli)); // .../pi-coding-agent
+      piNodeModules = join(piRoot, "node_modules");
+      const piRequire = createRequire(join(piNodeModules, "package.json"));
+      jitiModule = piRequire("@mariozechner/jiti");
     } catch {
-      // Fallback: resolve from pi-coding-agent's node_modules
+      // Direct import as last resort
       try {
-        const { createRequire } = await import("module");
-        const piPkgPath = createRequire(import.meta.url).resolve("@mariozechner/pi-coding-agent");
-        const piRequire = createRequire(piPkgPath);
-        jitiModule = piRequire("@mariozechner/jiti");
+        jitiModule = await import("@mariozechner/jiti");
       } catch {}
     }
 
-    if (jitiModule?.createJiti) {
-      const jiti = (jitiModule.createJiti as any)(import.meta.url);
-      for (const ext of resources.extensions) {
+    if (jitiModule?.createJiti && piNodeModules) {
+      // Temporarily patch module resolution so jiti-loaded extensions
+      // can resolve pi peer deps (@sinclair/typebox, @mariozechner/pi-tui, etc.)
+      const origResolveFilename = (Module as any)._resolveFilename;
+      const fallbackRequire = createRequire(join(piNodeModules, "package.json"));
+      (Module as any)._resolveFilename = function (request: string, parent: any, isMain: boolean, options: any) {
         try {
-          const mod = jiti(ext);
-          if (typeof mod?.default !== "function") {
-            result.valid = false;
-            result.errors.push(`Extension ${shortPath(ext, dir)}: missing default export function — pi extensions must export a default function(pi: ExtensionAPI)`);
-          } else {
-            result.info.push(`✓ jiti load OK: ${shortPath(ext, dir)}`);
-          }
-        } catch (e: any) {
-          const msg = e.message?.split("\n")[0] || String(e);
-          result.valid = false;
-          result.errors.push(`jiti load failed for ${shortPath(ext, dir)}: ${msg}`);
+          return origResolveFilename.call(this, request, parent, isMain, options);
+        } catch {
+          return fallbackRequire.resolve(request);
         }
+      };
+
+      try {
+        const jiti = (jitiModule.createJiti as any)(join(piNodeModules, "..", "dist", "cli.js"));
+        for (const ext of resources.extensions) {
+          try {
+            const mod = jiti(ext);
+            if (typeof mod?.default !== "function") {
+              result.valid = false;
+              result.errors.push(`Extension ${shortPath(ext, dir)}: missing default export function — pi extensions must export a default function(pi: ExtensionAPI)`);
+            } else {
+              result.info.push(`✓ jiti load OK: ${shortPath(ext, dir)}`);
+            }
+          } catch (e: any) {
+            const msg = e.message?.split("\n")[0] || String(e);
+            result.valid = false;
+            result.errors.push(`jiti load failed for ${shortPath(ext, dir)}: ${msg}`);
+          }
+        }
+      } finally {
+        // Always restore original resolution
+        (Module as any)._resolveFilename = origResolveFilename;
       }
     } else {
       result.warnings.push("Could not load jiti — skipping extension load check");
