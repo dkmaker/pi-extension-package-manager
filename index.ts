@@ -375,6 +375,7 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
+      ctx.ui.notify(`📦 Removing ${name}...`, "info");
       rmSync(dir, { recursive: true, force: true });
       removePackage(name);
       ensureGitignore();
@@ -411,6 +412,7 @@ export default function (pi: ExtensionAPI) {
           }
         }
 
+        ctx.ui.notify(`📦 Updating ${getPendingUpdates().length} package(s)...`, "info");
         const results = applyAllUpdates();
         const success = results.filter(r => r.success);
         const failed = results.filter(r => !r.success);
@@ -594,6 +596,7 @@ export default function (pi: ExtensionAPI) {
     description: "Initialize package manager for current repo",
     handler: async (_args, ctx) => {
       const cwd = process.cwd();
+      ctx.ui.notify("📦 Initializing package manager for this repo...", "info");
       generatePackageJson(cwd);
       const added = ensurePackageInSettings(cwd);
       const hash = repoHash(cwd);
@@ -618,6 +621,7 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
+      ctx.ui.notify(`📦 Initializing git for package pool...`, "info");
       try {
         gitInitPool(remote);
         ctx.ui.notify(
@@ -662,13 +666,15 @@ export default function (pi: ExtensionAPI) {
       ctx.ui.notify(`📦 Restoring ${entries.length} package(s)...`, "info");
       const results: string[] = [];
 
-      for (const entry of entries) {
+      for (let i = 0; i < entries.length; i++) {
+        const entry = entries[i];
         const dir = packageDir(entry.name);
         if (existsSync(dir)) {
           results.push(`  ⏭ ${entry.name} — already exists`);
           continue;
         }
 
+        ctx.ui.notify(`📦 Restoring ${entry.name} (${i + 1}/${entries.length})...`, "info");
         try {
           if (entry.sourceType === "git") {
             const parsed = parseSource(entry.source);
