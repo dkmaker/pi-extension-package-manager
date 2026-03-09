@@ -23,7 +23,7 @@ import {
   getPackageDescription,
   repoHash,
 } from "./store.js";
-import { executeOnboard } from "./onboard.js";
+import { validatePackage } from "./onboard.js";
 import { gitInitPool, gitSyncPool, isGitEnabled, getGitRemote, ensureGitignore } from "./git-pool.js";
 import { checkAllUpdates, getPendingUpdates, applyUpdate, applyAllUpdates } from "./updates.js";
 
@@ -445,64 +445,117 @@ export default function (pi: ExtensionAPI) {
       const gitEnabled = isGitEnabled();
 
       pi.sendUserMessage([
-        `📦 **Onboard Review Request**`,
+        `📦 **Onboard Request**`,
         ``,
-        `Please review the path \`${sourcePath}\` for onboarding into the package manager pool at \`${poolDir}\`.`,
+        `Please review and onboard \`${sourcePath}\` into the package manager pool at \`${poolDir}\`.`,
         ``,
-        `**Instructions:**`,
-        `1. Read the files at the given path. If it's a directory, list its contents and read key files (package.json, *.ts, *.js, *.md, *.json, SKILL.md, etc.)`,
-        `2. Determine what kind of pi package this is. A pi package can contain any combination of:`,
-        `   - **Extensions** — .ts/.js files, or \`extensions/\` dir, or \`pi.extensions\` in package.json`,
-        `   - **Skills** — SKILL.md files, or \`skills/\` dir, or \`pi.skills\` in package.json`,
-        `   - **Prompts** — .md templates, or \`prompts/\` dir, or \`pi.prompts\` in package.json`,
-        `   - **Themes** — .json theme files, or \`themes/\` dir, or \`pi.themes\` in package.json`,
-        `3. Check if it has a \`package.json\` with a \`pi\` manifest, dependencies, description, etc.`,
-        `4. Summarize your findings: what it does, what components it contains, any dependencies`,
-        `5. Propose a good package name (lowercase, hyphenated, concise — e.g. \`web-search\`, \`project-management\`, \`dump-context\`)`,
-        `6. Ask the user for confirmation before proceeding`,
+        `**Step 1 — Review the source:**`,
+        `- Read the files at the path. If it's a directory, list contents and read key files`,
+        `- Determine what pi components it contains:`,
+        `  • Extensions — .ts/.js files, \`extensions/\` dir, or \`pi.extensions\` in package.json`,
+        `  • Skills — SKILL.md files, \`skills/\` dir, or \`pi.skills\` in package.json`,
+        `  • Prompts — .md templates, \`prompts/\` dir, or \`pi.prompts\` in package.json`,
+        `  • Themes — .json theme files, \`themes/\` dir, or \`pi.themes\` in package.json`,
+        `- Check for package.json, dependencies, description`,
+        `- Summarize findings and propose a package name (lowercase, hyphenated, concise)`,
+        `- **Ask the user to confirm** before proceeding`,
         ``,
-        `**When the user confirms**, you must:`,
-        `1. Run \`/packages-onboard-execute <name> ${sourcePath}\` where \`<name>\` is the agreed-upon package name`,
-        `2. After execute completes, verify the onboard worked:`,
-        `   - Check that \`${poolDir}/<name>/\` exists and has the expected files`,
-        `   - Run \`/packages-list\` to confirm the package appears and is enabled`,
-        `3. Report the final result to the user`,
+        `**Step 2 — After user confirms, do the onboard yourself:**`,
+        `- Copy/move the source into \`${poolDir}/<name>/\``,
+        `- Ensure it has a valid \`package.json\` with \`"keywords": ["pi-package"]\` and a \`pi\` manifest`,
+        `- Ensure \`.gitignore\` includes \`node_modules/\``,
+        `- Run \`npm install\` if it has dependencies`,
+        `- Remove the original source`,
         ``,
-        `The execute command will: move the package to the pool, register it, enable it for this repo, install deps if needed${gitEnabled ? ", and git-sync the pool" : ""}.`,
+        `**Step 3 — Register and validate:**`,
+        `- Run \`/packages-register <name>\` to register the package and enable it for this repo`,
+        `- Run \`/packages-validate <name>\` to verify everything is correct`,
+        `${gitEnabled ? `- Run \`/packages-git-sync\` to sync the pool to git` : ""}`,
+        `- Report the result to the user`,
       ].join("\n"));
     },
   });
 
-  // ── /packages-onboard-execute — internal, called by agent after review ─
-  pi.registerCommand("packages-onboard-execute", {
-    description: "[agent-internal] Execute onboard after agent review: /packages-onboard-execute <name> <path>",
+  // ── /packages-register — register a package from the pool directory ────
+  pi.registerCommand("packages-register", {
+    description: "[agent-internal] Register a pool package and enable for this repo: /packages-register <name>",
     handler: async (args, ctx) => {
-      const parts = args.trim().split(/\s+/);
-      if (parts.length < 2) {
-        ctx.ui.notify("Usage: /packages-onboard-execute <name> <path>", "error");
+      const name = args.trim();
+      if (!name) {
+        ctx.ui.notify("Usage: /packages-register <name>", "error");
         return;
       }
 
-      const name = parts[0];
-      const sourcePath = parts.slice(1).join(" ");
+      const dir = resolve(PACKAGES_DIR, name);
+      if (!existsSync(dir)) {
+        ctx.ui.notify(`❌ Package directory not found: ${dir}`, "error");
+        return;
+      }
+
       const cwd = process.cwd();
 
       try {
-        const result = executeOnboard({ name, sourcePath, repoPath: cwd });
+        // Register in registry
+        addPackage({
+          name,
+          sourceType: "local",
+          source: "local",
+          onboardedFrom: "onboarded",
+          installedAt: new Date().toISOString(),
+        });
 
-        ctx.ui.notify(
-          `✅ Onboarded "${name}" into the pool and enabled for this repo.\nRun /reload to apply.` +
-          (result.gitSync ? `\n🔄 Git sync: ${result.gitSync}` : ""),
-          "info"
-        );
+        // Enable for the repo
+        enablePackage(cwd, name);
+        generatePackageJson(cwd);
+        ensurePackageInSettings(cwd);
+
+        // Update pool .gitignore if git-enabled
+        ensureGitignore();
+
+        ctx.ui.notify(`✅ Registered "${name}" and enabled for this repo.`, "info");
 
         // Update status
         const allPkgs = listPackages();
         const manifest = loadRepoManifest(cwd);
         ctx.ui.setStatus("pkg-count", `📦 ${manifest.enabled.length}/${allPkgs.length}`);
       } catch (e: any) {
-        ctx.ui.notify(`❌ Onboard failed: ${e.message}`, "error");
+        ctx.ui.notify(`❌ Register failed: ${e.message}`, "error");
       }
+    },
+  });
+
+  // ── /packages-validate — validate a package in the pool ───────────────
+  pi.registerCommand("packages-validate", {
+    description: "Validate a package in the pool: /packages-validate <name>",
+    handler: async (args, ctx) => {
+      const name = args.trim();
+      if (!name) {
+        ctx.ui.notify("Usage: /packages-validate <name>", "error");
+        return;
+      }
+
+      const result = validatePackage(name);
+      const lines: string[] = [
+        `📦 Validation: ${name} — ${result.valid ? "✅ PASS" : "❌ FAIL"}`,
+        ``,
+      ];
+
+      if (result.errors.length) {
+        lines.push(`Errors:`);
+        for (const e of result.errors) lines.push(`  ❌ ${e}`);
+        lines.push(``);
+      }
+      if (result.warnings.length) {
+        lines.push(`Warnings:`);
+        for (const w of result.warnings) lines.push(`  ⚠️ ${w}`);
+        lines.push(``);
+      }
+      if (result.info.length) {
+        lines.push(`Info:`);
+        for (const i of result.info) lines.push(`  ${i}`);
+      }
+
+      ctx.ui.notify(lines.join("\n"), result.valid ? "info" : "error");
     },
   });
 
