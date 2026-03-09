@@ -430,14 +430,12 @@ export default function (pi: ExtensionAPI) {
   // ── /packages-onboard — agent-driven review & onboard ──────────────────
   pi.registerCommand("packages-onboard", {
     description: "Onboard a pi package into the pool: /packages-onboard <path>",
-    handler: async (args, _ctx) => {
+    handler: async (args, ctx) => {
       const sourcePath = args.trim();
       if (!sourcePath) {
-        pi.sendUserMessage(
-          "I need a path to onboard. Usage: `/packages-onboard <path>`\n\n" +
-          "Examples:\n" +
-          "  `/packages-onboard ~/.pi/agent/available/extensions/my-ext/`\n" +
-          "  `/packages-onboard .pi/extensions/my-ext.ts`"
+        ctx.ui.notify(
+          "Usage: /packages-onboard <path>\n\nExamples:\n  /packages-onboard ~/.pi/agent/available/extensions/my-ext/\n  /packages-onboard .pi/extensions/my-ext.ts",
+          "warning"
         );
         return;
       }
@@ -445,36 +443,43 @@ export default function (pi: ExtensionAPI) {
       const poolDir = PACKAGES_DIR;
       const gitEnabled = isGitEnabled();
 
-      pi.sendUserMessage([
-        `📦 **Onboard Request**`,
-        ``,
-        `Please review and onboard \`${sourcePath}\` into the package manager pool at \`${poolDir}\`.`,
-        ``,
-        `**Step 1 — Review the source:**`,
-        `- Read the files at the path. If it's a directory, list contents and read key files`,
-        `- If a single file is given, check its parent directory — it may be part of a larger package (look for package.json, other .ts/.js files, imports). If so, onboard the whole directory instead.`,
-        `- Determine what pi components it contains:`,
-        `  • Extensions — .ts/.js files, \`extensions/\` dir, or \`pi.extensions\` in package.json`,
-        `  • Skills — SKILL.md files, \`skills/\` dir, or \`pi.skills\` in package.json`,
-        `  • Prompts — .md templates, \`prompts/\` dir, or \`pi.prompts\` in package.json`,
-        `  • Themes — .json theme files, \`themes/\` dir, or \`pi.themes\` in package.json`,
-        `- Check for package.json, dependencies, description`,
-        `- Summarize findings and propose a package name (lowercase, hyphenated, concise)`,
-        `- **Ask the user to confirm** before proceeding`,
-        ``,
-        `**Step 2 — After user confirms, do the onboard yourself:**`,
-        `- Copy/move the source into \`${poolDir}/<name>/\` — **exclude node_modules/** (never copy it)`,
-        `- Ensure it has a valid \`package.json\` with \`"keywords": ["pi-package"]\` and a \`pi\` manifest`,
-        `- Ensure \`.gitignore\` includes \`node_modules/\``,
-        `- Do NOT run npm install yourself — the register tool handles dependency installation`,
-        `- Remove the original source`,
-        ``,
-        `**Step 3 — Register and validate:**`,
-        `- Use the \`packages_register\` tool with the package name to register it and enable for this repo`,
-        `- Use the \`packages_validate\` tool to verify everything is correct`,
-        `${gitEnabled ? `- Run \`/packages-git-sync\` to sync the pool to git` : ""}`,
-        `- Report the result to the user`,
-      ].join("\n"));
+      ctx.ui.notify(`📦 Reviewing ${sourcePath} for onboarding...\nThe agent will analyze the source, propose a name, and ask for your confirmation.`, "info");
+
+      pi.sendMessage({
+        customType: "packages-onboard",
+        display: false,
+        content: [
+          `📦 Onboard Request — review and onboard \`${sourcePath}\` into the pool at \`${poolDir}\`.`,
+          ``,
+          `Step 1 — Review the source:`,
+          `- Read the files at the path. If it's a directory, list contents and read key files.`,
+          `- If a single file is given, check its parent directory — it may be part of a larger package (look for package.json, other .ts/.js files, imports). If so, onboard the whole directory instead.`,
+          `- Determine what pi components it contains:`,
+          `  • Extensions — .ts/.js files, extensions/ dir, or pi.extensions in package.json`,
+          `  • Skills — SKILL.md files, skills/ dir, or pi.skills in package.json`,
+          `  • Prompts — .md templates, prompts/ dir, or pi.prompts in package.json`,
+          `  • Themes — .json theme files, themes/ dir, or pi.themes in package.json`,
+          `- Check for package.json, dependencies, description`,
+          `- Summarize findings and propose a package name (lowercase, hyphenated, concise)`,
+          `- Ask the user to confirm before proceeding`,
+          ``,
+          `Step 2 — After user confirms, do the onboard yourself:`,
+          `- Copy/move the source into ${poolDir}/<name>/ — EXCLUDE node_modules/ (never copy it)`,
+          `- Ensure it has a valid package.json with "keywords": ["pi-package"] and a pi manifest`,
+          `- Ensure .gitignore includes node_modules/`,
+          `- Do NOT run npm install — the register tool handles dependency installation`,
+          `- Remove the original source`,
+          ``,
+          `Step 3 — Register and validate:`,
+          `- Use the packages_register tool with the package name to register it and enable for this repo`,
+          `- Use the packages_validate tool to verify everything is correct`,
+          `${gitEnabled ? `- Run /packages-git-sync to sync the pool to git` : ""}`,
+          `- Report the result to the user`,
+        ].join("\n"),
+      }, {
+        triggerTurn: true,
+        deliverAs: "steer",
+      });
     },
   });
 
