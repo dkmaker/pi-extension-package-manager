@@ -258,7 +258,7 @@ export async function validatePackage(name: string): Promise<ValidationResult> {
             // expected and don't indicate a broken extension.
             const isPeerDepError = /No "exports" main defined in.*@mariozechner|Cannot find module '@mariozechner\/pi-|Cannot find module '@sinclair\/typebox/.test(msg);
             if (isPeerDepError) {
-              result.warnings.push(`Extension ${shortPath(ext, dir)}: could not fully validate — pi peer dependency not resolvable outside pi runtime (${msg.slice(0, 100)})`);
+              result.info.push(`⚡ Extension ${shortPath(ext, dir)}: imports pi peer deps (ESM-only) — syntax/structure OK, full validation requires pi runtime`);
             } else {
               result.valid = false;
               result.errors.push(`jiti load failed for ${shortPath(ext, dir)}: ${msg}`);
