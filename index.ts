@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { Type } from "@sinclair/typebox";
 import { matchesKey, Key, truncateToWidth, Box } from "@mariozechner/pi-tui";
 import { existsSync, mkdirSync, rmSync } from "fs";
 import { resolve, basename } from "path";
@@ -468,34 +469,33 @@ export default function (pi: ExtensionAPI) {
         `- Remove the original source`,
         ``,
         `**Step 3 — Register and validate:**`,
-        `- Run \`/packages-register <name>\` to register the package and enable it for this repo`,
-        `- Run \`/packages-validate <name>\` to verify everything is correct`,
+        `- Use the \`packages_register\` tool with the package name to register it and enable for this repo`,
+        `- Use the \`packages_validate\` tool to verify everything is correct`,
         `${gitEnabled ? `- Run \`/packages-git-sync\` to sync the pool to git` : ""}`,
         `- Report the result to the user`,
       ].join("\n"));
     },
   });
 
-  // ── /packages-register — register a package from the pool directory ────
-  pi.registerCommand("packages-register", {
-    description: "[agent-internal] Register a pool package and enable for this repo: /packages-register <name>",
-    handler: async (args, ctx) => {
-      const name = args.trim();
-      if (!name) {
-        ctx.ui.notify("Usage: /packages-register <name>", "error");
-        return;
-      }
-
+  // ── packages_register — tool for agent to register a pool package ──────
+  pi.registerTool({
+    name: "packages_register",
+    label: "Register Package",
+    description: "Register a package that exists in the pool directory and enable it for the current repo. Call this after placing package files in the pool.",
+    parameters: Type.Object({
+      name: Type.String({ description: "Package name (must match folder name in pool)" }),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const { name } = params;
       const dir = resolve(PACKAGES_DIR, name);
+
       if (!existsSync(dir)) {
-        ctx.ui.notify(`❌ Package directory not found: ${dir}`, "error");
-        return;
+        return { content: [{ type: "text", text: `❌ Package directory not found: ${dir}` }], details: {} };
       }
 
       const cwd = process.cwd();
 
       try {
-        // Register in registry
         addPackage({
           name,
           sourceType: "local",
@@ -504,37 +504,37 @@ export default function (pi: ExtensionAPI) {
           installedAt: new Date().toISOString(),
         });
 
-        // Enable for the repo
         enablePackage(cwd, name);
         generatePackageJson(cwd);
         ensurePackageInSettings(cwd);
-
-        // Update pool .gitignore if git-enabled
         ensureGitignore();
 
-        ctx.ui.notify(`✅ Registered "${name}" and enabled for this repo.`, "info");
-
-        // Update status
         const allPkgs = listPackages();
         const manifest = loadRepoManifest(cwd);
         ctx.ui.setStatus("pkg-count", `📦 ${manifest.enabled.length}/${allPkgs.length}`);
+
+        return {
+          content: [{ type: "text", text: `✅ Registered "${name}" and enabled for this repo. Run /reload to apply.` }],
+          details: {},
+        };
       } catch (e: any) {
-        ctx.ui.notify(`❌ Register failed: ${e.message}`, "error");
+        return { content: [{ type: "text", text: `❌ Register failed: ${e.message}` }], details: {} };
       }
     },
   });
 
-  // ── /packages-validate — validate a package in the pool ───────────────
-  pi.registerCommand("packages-validate", {
-    description: "Validate a package in the pool: /packages-validate <name>",
-    handler: async (args, ctx) => {
-      const name = args.trim();
-      if (!name) {
-        ctx.ui.notify("Usage: /packages-validate <name>", "error");
-        return;
-      }
-
+  // ── packages_validate — tool for agent to validate a pool package ─────
+  pi.registerTool({
+    name: "packages_validate",
+    label: "Validate Package",
+    description: "Validate a package in the pool: checks structure, paths, package.json, pi manifest, skill frontmatter (name must match folder), dependencies, and jiti load for extensions.",
+    parameters: Type.Object({
+      name: Type.String({ description: "Package name to validate" }),
+    }),
+    async execute(_toolCallId, params) {
+      const { name } = params;
       const result = validatePackage(name);
+
       const lines: string[] = [
         `📦 Validation: ${name} — ${result.valid ? "✅ PASS" : "❌ FAIL"}`,
         ``,
@@ -555,7 +555,7 @@ export default function (pi: ExtensionAPI) {
         for (const i of result.info) lines.push(`  ${i}`);
       }
 
-      ctx.ui.notify(lines.join("\n"), result.valid ? "info" : "error");
+      return { content: [{ type: "text", text: lines.join("\n") }], details: {} };
     },
   });
 
