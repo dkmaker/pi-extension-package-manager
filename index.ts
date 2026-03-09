@@ -468,7 +468,7 @@ export default function (pi: ExtensionAPI) {
           `- Ensure it has a valid package.json with "keywords": ["pi-package"] and a pi manifest`,
           `- Ensure .gitignore includes node_modules/`,
           `- Do NOT run npm install — the register tool handles dependency installation`,
-          `- Remove the original source`,
+          `- Disable the original source so it won't conflict (rename .ts files to .ts.bak, or rename the folder with a .bak suffix). NEVER delete originals — always back up.`,
           ``,
           `Step 3 — Register and validate:`,
           `- Use the packages_register tool with the package name to register it and enable for this repo`,
