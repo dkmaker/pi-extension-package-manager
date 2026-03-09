@@ -462,10 +462,10 @@ export default function (pi: ExtensionAPI) {
         `- **Ask the user to confirm** before proceeding`,
         ``,
         `**Step 2 — After user confirms, do the onboard yourself:**`,
-        `- Copy/move the source into \`${poolDir}/<name>/\``,
+        `- Copy/move the source into \`${poolDir}/<name>/\` — **exclude node_modules/** (never copy it)`,
         `- Ensure it has a valid \`package.json\` with \`"keywords": ["pi-package"]\` and a \`pi\` manifest`,
         `- Ensure \`.gitignore\` includes \`node_modules/\``,
-        `- Run \`npm install\` if it has dependencies`,
+        `- Do NOT run npm install yourself — the register tool handles dependency installation`,
         `- Remove the original source`,
         ``,
         `**Step 3 — Register and validate:**`,
@@ -504,6 +504,19 @@ export default function (pi: ExtensionAPI) {
           installedAt: new Date().toISOString(),
         });
 
+        // Install dependencies if package.json has them
+        let depsInstalled = false;
+        const pkgJsonPath = resolve(dir, "package.json");
+        if (existsSync(pkgJsonPath)) {
+          try {
+            const pkg = JSON.parse(require("fs").readFileSync(pkgJsonPath, "utf-8"));
+            if (pkg.dependencies && Object.keys(pkg.dependencies).length > 0) {
+              installDependenciesIfNeeded(dir);
+              depsInstalled = true;
+            }
+          } catch {}
+        }
+
         enablePackage(cwd, name);
         generatePackageJson(cwd);
         ensurePackageInSettings(cwd);
@@ -513,10 +526,10 @@ export default function (pi: ExtensionAPI) {
         const manifest = loadRepoManifest(cwd);
         ctx.ui.setStatus("pkg-count", `📦 ${manifest.enabled.length}/${allPkgs.length}`);
 
-        return {
-          content: [{ type: "text", text: `✅ Registered "${name}" and enabled for this repo. Run /reload to apply.` }],
-          details: {},
-        };
+        const msg = `✅ Registered "${name}" and enabled for this repo.` +
+          (depsInstalled ? ` Dependencies installed.` : ``) +
+          ` Run /reload to apply.`;
+        return { content: [{ type: "text", text: msg }], details: {} };
       } catch (e: any) {
         return { content: [{ type: "text", text: `❌ Register failed: ${e.message}` }], details: {} };
       }
