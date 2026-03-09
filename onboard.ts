@@ -37,7 +37,8 @@ function isDir(p: string): boolean {
 }
 
 export function analyzeOnboard(sourcePath: string, cwd: string): OnboardAnalysis {
-  const absPath = resolve(cwd, sourcePath);
+  const expanded = sourcePath.startsWith("~/") ? join(process.env.HOME || "/root", sourcePath.slice(2)) : sourcePath;
+  const absPath = resolve(cwd, expanded);
   const result: OnboardAnalysis = {
     sourcePath: absPath,
     type: "single-file",
