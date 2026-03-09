@@ -2,7 +2,6 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, lstatS
 import { join, resolve, basename, relative } from "path";
 import { createHash } from "crypto";
 import { homedir } from "os";
-import { homedir } from "os";
 import {
   PACKAGES_DIR,
   REPOS_DIR,
