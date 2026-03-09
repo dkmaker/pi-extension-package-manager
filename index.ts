@@ -32,6 +32,12 @@ import { checkAllUpdates, getPendingUpdates, applyUpdate, applyAllUpdates } from
 // Extension entry point
 // ============================================================================
 
+/** Filter out the package manager itself from user-facing lists */
+const SELF_PACKAGE = "pi-extension-package-manager";
+function userPackages() {
+  return listPackages().filter(p => p.name !== SELF_PACKAGE && !p.source?.includes("pi-extension-package-manager"));
+}
+
 export default function (pi: ExtensionAPI) {
   // Ensure base directories exist
   mkdirSync(PACKAGES_DIR, { recursive: true });
@@ -39,7 +45,7 @@ export default function (pi: ExtensionAPI) {
   // ── Session start: status + background update check ─────────────────────
   pi.on("session_start", async (_event, ctx) => {
     const cwd = process.cwd();
-    const allPkgs = listPackages();
+    const allPkgs = userPackages();
     const manifest = loadRepoManifest(cwd);
     const enabledCount = manifest.enabled.length;
 
@@ -74,7 +80,7 @@ export default function (pi: ExtensionAPI) {
     description: "Toggle packages for the current project",
     handler: async (_args, ctx) => {
       const cwd = process.cwd();
-      const allPkgs = listPackages();
+      const allPkgs = userPackages();
 
       if (!allPkgs.length) {
         ctx.ui.notify(
@@ -225,7 +231,7 @@ export default function (pi: ExtensionAPI) {
     description: "List all packages in the pool and their status",
     handler: async (_args, ctx) => {
       const cwd = process.cwd();
-      const allPkgs = listPackages();
+      const allPkgs = userPackages();
       const manifest = loadRepoManifest(cwd);
       const enabledSet = new Set(manifest.enabled);
 
@@ -419,7 +425,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       // Update status
-      const allPkgs = listPackages();
+      const allPkgs = userPackages();
       const manifest = loadRepoManifest(process.cwd());
       const pendingNow = getPendingUpdates();
       const badge = pendingNow.length > 0 ? ` ⬆${pendingNow.length}` : "";
@@ -528,7 +534,7 @@ export default function (pi: ExtensionAPI) {
         ensurePackageInSettings(cwd);
         ensureGitignore();
 
-        const allPkgs = listPackages();
+        const allPkgs = userPackages();
         const manifest = loadRepoManifest(cwd);
         ctx.ui.setStatus("pkg-count", `📦 ${manifest.enabled.length}/${allPkgs.length}`);
 
