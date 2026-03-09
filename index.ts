@@ -461,18 +461,21 @@ export default function (pi: ExtensionAPI) {
         `5. Propose a good package name (lowercase, hyphenated, concise — e.g. \`web-search\`, \`project-management\`, \`dump-context\`)`,
         `6. Ask the user for confirmation before proceeding`,
         ``,
-        `**When the user confirms**, execute the onboard by running:`,
-        `  \`/packages-onboard-execute <name> <path>\``,
-        `  where \`<name>\` is the agreed-upon package name and \`<path>\` is the original source path.`,
+        `**When the user confirms**, you must:`,
+        `1. Run \`/packages-onboard-execute <name> ${sourcePath}\` where \`<name>\` is the agreed-upon package name`,
+        `2. After execute completes, verify the onboard worked:`,
+        `   - Check that \`${poolDir}/<name>/\` exists and has the expected files`,
+        `   - Run \`/packages-list\` to confirm the package appears and is enabled`,
+        `3. Report the final result to the user`,
         ``,
-        `This will: move the package to the pool, register it, enable it for this repo, install deps if needed${gitEnabled ? ", and git-sync the pool" : ""}.`,
+        `The execute command will: move the package to the pool, register it, enable it for this repo, install deps if needed${gitEnabled ? ", and git-sync the pool" : ""}.`,
       ].join("\n"));
     },
   });
 
-  // ── /packages-onboard-execute — mechanical onboard (called by agent) ──
+  // ── /packages-onboard-execute — internal, called by agent after review ─
   pi.registerCommand("packages-onboard-execute", {
-    description: "Execute onboard after agent review: /packages-onboard-execute <name> <path>",
+    description: "[agent-internal] Execute onboard after agent review: /packages-onboard-execute <name> <path>",
     handler: async (args, ctx) => {
       const parts = args.trim().split(/\s+/);
       if (parts.length < 2) {
