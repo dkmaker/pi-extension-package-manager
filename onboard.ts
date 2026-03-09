@@ -200,17 +200,20 @@ export async function validatePackage(name: string): Promise<ValidationResult> {
     }
   }
 
-  // 7. Try jiti load for extensions (syntax/import check only)
+  // 7. Try jiti load for extensions — check syntax, imports, and default export
   if (resources.extensions.length > 0) {
     try {
       const { createJiti } = await import("@mariozechner/jiti");
       const jiti = (createJiti as any)(import.meta.url);
       for (const ext of resources.extensions) {
         try {
-          // Load via jiti to check syntax and imports resolve
-          // This validates TypeScript compiles and dependencies are found
-          jiti(ext);
-          result.info.push(`✓ jiti load OK: ${shortPath(ext, dir)}`);
+          const mod = jiti(ext);
+          if (typeof mod?.default !== "function") {
+            result.valid = false;
+            result.errors.push(`Extension ${shortPath(ext, dir)}: missing default export function — pi extensions must export a default function(pi: ExtensionAPI)`);
+          } else {
+            result.info.push(`✓ jiti load OK: ${shortPath(ext, dir)}`);
+          }
         } catch (e: any) {
           const msg = e.message?.split("\n")[0] || String(e);
           result.valid = false;
