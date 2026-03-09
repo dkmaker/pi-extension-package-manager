@@ -89,6 +89,7 @@ export interface PackageResources {
   extensions: string[];
   skills: string[];
   prompts: string[];
+  themes: string[];
 }
 
 /** 24 hours in milliseconds */

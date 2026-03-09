@@ -83,7 +83,7 @@ function collectFiles(dir: string, extensions: string[]): string[] {
 
 export function resolvePackageResources(pkgName: string): PackageResources {
   const dir = packageDir(pkgName);
-  if (!existsSync(dir)) return { extensions: [], skills: [], prompts: [] };
+  if (!existsSync(dir)) return { extensions: [], skills: [], prompts: [], themes: [] };
 
   // Check for pi manifest in package.json
   const pkgJsonPath = join(dir, "package.json");
@@ -91,7 +91,7 @@ export function resolvePackageResources(pkgName: string): PackageResources {
     try {
       const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf-8"));
       if (pkg.pi) {
-        const result: PackageResources = { extensions: [], skills: [], prompts: [] };
+        const result: PackageResources = { extensions: [], skills: [], prompts: [], themes: [] };
 
         if (pkg.pi.extensions) {
           for (const entry of pkg.pi.extensions) {
@@ -135,6 +135,19 @@ export function resolvePackageResources(pkgName: string): PackageResources {
           }
         }
 
+        if (pkg.pi.themes) {
+          for (const entry of pkg.pi.themes) {
+            const resolved = resolve(dir, entry);
+            if (existsSync(resolved)) {
+              if (isDir(resolved)) {
+                result.themes.push(...collectFiles(resolved, [".json"]));
+              } else {
+                result.themes.push(resolved);
+              }
+            }
+          }
+        }
+
         return result;
       }
     } catch {}
@@ -145,6 +158,7 @@ export function resolvePackageResources(pkgName: string): PackageResources {
     extensions: collectFiles(join(dir, "extensions"), [".ts", ".js"]),
     skills: collectFiles(join(dir, "skills"), []),
     prompts: collectFiles(join(dir, "prompts"), [".md"]),
+    themes: collectFiles(join(dir, "themes"), [".json"]),
   };
 }
 
@@ -160,18 +174,21 @@ export function generatePackageJson(repoPath: string): string {
   const allExtensions: string[] = [];
   const allSkills: string[] = [];
   const allPrompts: string[] = [];
+  const allThemes: string[] = [];
 
   for (const pkgName of manifest.enabled) {
     const resources = resolvePackageResources(pkgName);
     allExtensions.push(...resources.extensions);
     allSkills.push(...resources.skills);
     allPrompts.push(...resources.prompts);
+    allThemes.push(...resources.themes);
   }
 
   const piManifest: Record<string, string[]> = {};
   if (allExtensions.length > 0) piManifest.extensions = allExtensions;
   if (allSkills.length > 0) piManifest.skills = allSkills;
   if (allPrompts.length > 0) piManifest.prompts = allPrompts;
+  if (allThemes.length > 0) piManifest.themes = allThemes;
 
   const pkgJson = {
     name: `managed-${repoHash(repoPath)}`,
@@ -274,5 +291,6 @@ export function getPackageDescription(pkgName: string): string {
   if (resources.extensions.length) parts.push(`${resources.extensions.length} ext`);
   if (resources.skills.length) parts.push(`${resources.skills.length} skill`);
   if (resources.prompts.length) parts.push(`${resources.prompts.length} prompt`);
+  if (resources.themes.length) parts.push(`${resources.themes.length} theme`);
   return parts.length > 0 ? parts.join(", ") : "empty package";
 }
