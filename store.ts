@@ -1,10 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, lstatSync } from "fs";
-import { join, resolve, basename } from "path";
+import { join, resolve, basename, relative } from "path";
 import { createHash } from "crypto";
+import { homedir } from "os";
 import { homedir } from "os";
 import {
   PACKAGES_DIR,
   REPOS_DIR,
+  CONFIG_ROOT,
   type RepoManifest,
   type PackageResources,
 } from "./constants.js";
@@ -217,7 +219,13 @@ export function enablePackage(repoPath: string, pkgName: string): void {
 
 export function ensurePackageInSettings(repoPath: string): boolean {
   const settingsPath = join(repoPath, ".pi", "settings.json");
-  const packageSource = `~/.pi/packagemanager/repos/${repoHash(repoPath)}`;
+  // Build a ~-relative path so it's portable across machines
+  // CONFIG_ROOT might be ~/.pi or a custom path via PI_CODING_AGENT_DIR
+  const home = homedir();
+  const reposDir = join(CONFIG_ROOT, "packagemanager", "repos", repoHash(repoPath));
+  const packageSource = reposDir.startsWith(home)
+    ? `~/${relative(home, reposDir)}`
+    : reposDir;
 
   let settings: any = {};
   try {

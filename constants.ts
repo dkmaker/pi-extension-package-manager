@@ -2,11 +2,35 @@ import { join } from "path";
 import { homedir } from "os";
 
 // ============================================================================
-// Paths
+// Paths — respects PI_CODING_AGENT_DIR if set
 // ============================================================================
 
+/**
+ * Resolve the pi config base directory.
+ * Follows the same logic as pi's getAgentDir():
+ *   1. PI_CODING_AGENT_DIR env var (with ~ expansion)
+ *   2. Falls back to ~/.pi/agent/
+ *
+ * The package manager lives alongside the agent dir (sibling of agent/).
+ * e.g. if agent dir is ~/.pi/agent/, packagemanager is ~/.pi/packagemanager/
+ */
+function resolveConfigRoot(): string {
+  const envDir = process.env.PI_CODING_AGENT_DIR;
+  if (envDir) {
+    const expanded = envDir === "~" ? homedir()
+      : envDir.startsWith("~/") ? join(homedir(), envDir.slice(2))
+      : envDir;
+    // Agent dir might be e.g. /custom/path/agent — go up one level
+    return join(expanded, "..");
+  }
+  return join(homedir(), ".pi");
+}
+
+/** The pi config root (e.g. ~/.pi/) */
+export const CONFIG_ROOT = resolveConfigRoot();
+
 /** Root of the package manager's data */
-export const PKG_MGR_ROOT = join(homedir(), ".pi", "packagemanager");
+export const PKG_MGR_ROOT = join(CONFIG_ROOT, "packagemanager");
 
 /** Pool of all packages (git clones, npm installs, local/onboarded) */
 export const PACKAGES_DIR = join(PKG_MGR_ROOT, "packages");
