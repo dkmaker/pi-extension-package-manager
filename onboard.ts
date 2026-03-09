@@ -228,12 +228,15 @@ export async function validatePackage(name: string): Promise<ValidationResult> {
       // Temporarily patch module resolution so jiti-loaded extensions
       // can resolve pi peer deps (@sinclair/typebox, @mariozechner/pi-tui, etc.)
       const origResolveFilename = (Module as any)._resolveFilename;
-      const fallbackRequire = createRequire(join(piNodeModules, "package.json"));
       (Module as any)._resolveFilename = function (request: string, parent: any, isMain: boolean, options: any) {
         try {
           return origResolveFilename.call(this, request, parent, isMain, options);
         } catch {
-          return fallbackRequire.resolve(request);
+          // Create a fake parent module rooted in pi's node_modules so
+          // resolution walks pi's dependency tree. We must call the ORIGINAL
+          // _resolveFilename to avoid infinite recursion.
+          const fakeParent = { id: join(piNodeModules!, "..", "index.js"), filename: join(piNodeModules!, "..", "index.js"), paths: (Module as any)._nodeModulePaths(piNodeModules!) };
+          return origResolveFilename.call(this, request, fakeParent, isMain, options);
         }
       };
 
