@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { matchesKey, Key, truncateToWidth, Box } from "@mariozechner/pi-tui";
-import { existsSync, mkdirSync, rmSync, readFileSync, readdirSync, statSync } from "fs";
-import { resolve, basename, join, extname } from "path";
+import { existsSync, mkdirSync, rmSync } from "fs";
+import { resolve, basename, extname } from "path";
 import { PACKAGES_DIR, PKG_MGR_ROOT, type PackageEntry } from "./constants.js";
 import {
   loadRegistry,
@@ -26,59 +26,6 @@ import {
 import { analyzeOnboard, executeOnboard } from "./onboard.js";
 import { gitInitPool, gitSyncPool, isGitEnabled, getGitRemote, ensureGitignore } from "./git-pool.js";
 import { checkAllUpdates, getPendingUpdates, applyUpdate, applyAllUpdates } from "./updates.js";
-
-// ============================================================================
-// Helpers
-// ============================================================================
-
-/** Read source files for agent review, with size limits */
-function readSourceFiles(sourcePath: string, type: string): string {
-  const MAX_FILE_SIZE = 8000; // chars per file
-  const MAX_TOTAL = 32000; // total chars
-  const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build"]);
-  const TEXT_EXTS = new Set([".ts", ".js", ".json", ".md", ".txt", ".yaml", ".yml", ".toml"]);
-
-  let total = 0;
-  const parts: string[] = [];
-
-  function addFile(filePath: string, label: string) {
-    if (total >= MAX_TOTAL) return;
-    try {
-      const ext = extname(filePath);
-      if (!TEXT_EXTS.has(ext)) return;
-      let content = readFileSync(filePath, "utf-8");
-      if (content.length > MAX_FILE_SIZE) {
-        content = content.slice(0, MAX_FILE_SIZE) + "\n... (truncated)";
-      }
-      const lang = ext === ".ts" ? "typescript" : ext === ".js" ? "javascript" : ext.slice(1);
-      parts.push(`### ${label}\n\`\`\`${lang}\n${content}\n\`\`\``);
-      total += content.length;
-    } catch {}
-  }
-
-  if (type === "single-file") {
-    addFile(sourcePath, basename(sourcePath));
-  } else {
-    function walk(dir: string, prefix: string) {
-      if (total >= MAX_TOTAL) return;
-      for (const entry of readdirSync(dir)) {
-        if (SKIP_DIRS.has(entry)) continue;
-        const full = join(dir, entry);
-        try {
-          const st = statSync(full);
-          if (st.isDirectory()) {
-            walk(full, `${prefix}${entry}/`);
-          } else {
-            addFile(full, `${prefix}${entry}`);
-          }
-        } catch {}
-      }
-    }
-    walk(sourcePath, "");
-  }
-
-  return parts.length ? parts.join("\n\n") : "(no readable source files found)";
-}
 
 // ============================================================================
 // Extension entry point
@@ -479,17 +426,15 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // ── /packages-onboard — analyze & agent review ─────────────────────────
-  // Pending onboard state for the confirm step
-  let pendingOnboard: { analysis: ReturnType<typeof analyzeOnboard>; cwd: string } | null = null;
-
+  // ── /packages-onboard — analyze, validate via TUI, execute ─────────────
   pi.registerCommand("packages-onboard", {
     description: "Onboard an existing extension into the pool: /packages-onboard <path>",
-    handler: async (args, _ctx) => {
+    handler: async (args, ctx) => {
       const sourcePath = args.trim();
       if (!sourcePath) {
-        pi.sendUserMessage(
+        ctx.ui.notify(
           "Usage: /packages-onboard <path>\n\nExamples:\n  /packages-onboard .pi/extensions/my-ext.ts\n  /packages-onboard .pi/extensions/my-dir-ext/",
+          "warning"
         );
         return;
       }
@@ -498,80 +443,231 @@ export default function (pi: ExtensionAPI) {
       const analysis = analyzeOnboard(sourcePath, cwd);
 
       if (!analysis.valid) {
-        pi.sendUserMessage(`❌ Cannot onboard: ${analysis.error}`);
+        ctx.ui.notify(`❌ Cannot onboard: ${analysis.error}`, "error");
         return;
       }
 
-      // Store pending onboard for confirm step
-      pendingOnboard = { analysis, cwd };
+      // Show TUI validation screen
+      const result = await ctx.ui.custom<{ action: "accept"; name: string } | { action: "cancel" }>(
+        (tui, theme, _kb, done) => {
+          let nameInput = analysis.name;
+          let editing = false;
+          let scroll = 0;
+          let cache: string[] | undefined;
 
-      // Read source files to give the agent full context
-      const sourceContents = readSourceFiles(analysis.sourcePath, analysis.type);
+          function handleInput(data: string) {
+            if (editing) {
+              if (matchesKey(data, Key.escape)) {
+                editing = false;
+                cache = undefined;
+                tui.requestRender();
+                return;
+              }
+              if (matchesKey(data, Key.enter)) {
+                editing = false;
+                cache = undefined;
+                tui.requestRender();
+                return;
+              }
+              if (matchesKey(data, Key.backspace)) {
+                nameInput = nameInput.slice(0, -1);
+                cache = undefined;
+                tui.requestRender();
+                return;
+              }
+              if (data.length === 1 && data >= " ") {
+                nameInput += data;
+                cache = undefined;
+                tui.requestRender();
+              }
+              return;
+            }
 
-      // Build agent review prompt
-      const prompt = [
-        `📦 **Package Onboard Review**`,
-        ``,
-        `I'm onboarding a package from: \`${analysis.sourcePath}\``,
-        `Detected type: ${analysis.type}`,
-        `Auto-derived name: \`${analysis.name}\``,
-        ``,
-        `**Source files:**`,
-        ``,
-        sourceContents,
-        ``,
-        `---`,
-        ``,
-        `Please review this package and:`,
-        `1. Explain what it does (brief summary)`,
-        `2. Identify whether it's an extension, skill, prompt, or mixed package`,
-        `3. Propose a good descriptive package name (lowercase, hyphenated, concise — e.g. \`web-search\`, \`project-management\`, \`dump-context\`)`,
-        `4. If the auto-derived name \`${analysis.name}\` is already good, say so`,
-        ``,
-        `Then tell the user to run:`,
-        `- \`/packages-onboard-confirm\` to accept the auto-derived name \`${analysis.name}\``,
-        `- \`/packages-onboard-confirm <new-name>\` to use your proposed name or their own`,
-        `- The name must be lowercase, alphanumeric with hyphens only`,
-      ].join("\n");
+            // Normal mode
+            if (matchesKey(data, Key.escape) || data === "q") {
+              done({ action: "cancel" });
+              return;
+            }
+            if (matchesKey(data, Key.enter) || data === "y") {
+              // Sanitize name before accepting
+              const sanitized = nameInput
+                .replace(/[^a-zA-Z0-9._-]/g, "-")
+                .replace(/-+/g, "-")
+                .replace(/^-|-$/g, "")
+                .toLowerCase();
+              if (!sanitized) {
+                cache = undefined;
+                tui.requestRender();
+                return;
+              }
+              done({ action: "accept", name: sanitized });
+              return;
+            }
+            if (data === "e" || data === "n") {
+              editing = true;
+              cache = undefined;
+              tui.requestRender();
+              return;
+            }
+            if (data === "j" || matchesKey(data, Key.down)) {
+              scroll++;
+              cache = undefined;
+              tui.requestRender();
+              return;
+            }
+            if (data === "k" || matchesKey(data, Key.up)) {
+              scroll = Math.max(0, scroll - 1);
+              cache = undefined;
+              tui.requestRender();
+              return;
+            }
+          }
 
-      pi.sendUserMessage(prompt);
-    },
-  });
+          function render(width: number, height: number): string[] {
+            if (cache) return cache;
+            const w = width - 2;
+            const lines: string[] = [];
+            const hr = theme.fg("accent", "─".repeat(w));
 
-  // ── /packages-onboard-confirm — execute the pending onboard ───────────
-  pi.registerCommand("packages-onboard-confirm", {
-    description: "Confirm and execute pending onboard: /packages-onboard-confirm [name]",
-    handler: async (args, ctx) => {
-      if (!pendingOnboard) {
-        ctx.ui.notify("❌ No pending onboard. Run /packages-onboard <path> first.", "error");
+            lines.push(hr);
+            lines.push(` 📦 Onboard Review`);
+            lines.push(hr);
+            lines.push(``);
+
+            // Source
+            lines.push(` ${theme.fg("dim", "Source:")}  ${analysis.sourcePath}`);
+            lines.push(` ${theme.fg("dim", "Type:")}    ${analysis.type}`);
+            lines.push(``);
+
+            // Detected components
+            if (analysis.components.length > 0) {
+              lines.push(` ${theme.fg("dim", "Components:")}`);
+              for (const comp of analysis.components) {
+                const icon = comp.type === "extension" ? "🔌"
+                  : comp.type === "skill" ? "🧠"
+                  : comp.type === "theme" ? "🎨"
+                  : "📝";
+                const via = theme.fg("dim", `(${comp.via})`);
+                lines.push(`   ${icon} ${comp.type} ${via}`);
+                for (const ev of comp.evidence.slice(0, 5)) {
+                  lines.push(`     ${theme.fg("dim", `→ ${ev}`)}`);
+                }
+                if (comp.evidence.length > 5) {
+                  lines.push(theme.fg("dim", `     ... +${comp.evidence.length - 5} more`));
+                }
+              }
+            } else {
+              lines.push(` ${theme.fg("warning" as any, "⚠ No pi components detected")}`);
+            }
+
+            // Pi manifest
+            if (analysis.hasPiManifest && analysis.piManifest) {
+              lines.push(``);
+              lines.push(` ${theme.fg("dim", "pi manifest:")}`)
+              for (const [k, v] of Object.entries(analysis.piManifest)) {
+                lines.push(`   ${theme.fg("accent", k)}: ${theme.fg("dim", JSON.stringify(v))}`);
+              }
+            }
+
+            // pi-package keyword
+            if (analysis.hasPiKeyword) {
+              lines.push(` ${theme.fg("dim", "✓ has pi-package keyword")}`);
+            }
+
+            // Description
+            if (analysis.description) {
+              lines.push(` ${theme.fg("dim", "Desc:")}    ${analysis.description}`);
+            }
+
+            // Dependencies
+            if (analysis.dependencies.length > 0) {
+              lines.push(``);
+              lines.push(` ${theme.fg("dim", "Dependencies:")}`);
+              for (const dep of analysis.dependencies) {
+                lines.push(`   • ${dep}`);
+              }
+            }
+
+            // Files
+            lines.push(``);
+            lines.push(` ${theme.fg("dim", `Files (${analysis.files.length}):`)}`)
+            const maxFiles = 15;
+            const displayFiles = analysis.files.slice(0, maxFiles);
+            for (const f of displayFiles) {
+              const ext = extname(f);
+              const color = [".ts", ".js"].includes(ext) ? "accent" : "dim";
+              lines.push(`   ${theme.fg(color as any, f)}`);
+            }
+            if (analysis.files.length > maxFiles) {
+              lines.push(theme.fg("dim", `   ... and ${analysis.files.length - maxFiles} more`));
+            }
+
+            // Steps
+            lines.push(``);
+            lines.push(` ${theme.fg("dim", "Will do:")}`);
+            for (const step of analysis.steps) {
+              lines.push(`   ${step}`);
+            }
+
+            // Git sync note
+            if (isGitEnabled()) {
+              lines.push(`   ${theme.fg("accent", "Git sync after onboard")}`);
+            }
+
+            // Name + controls
+            lines.push(``);
+            lines.push(hr);
+            if (editing) {
+              lines.push(` Name: ${theme.fg("accent", nameInput)}▏  ${theme.fg("dim", "(Enter to confirm, Esc to cancel)")}`);
+            } else {
+              lines.push(` Name: ${theme.fg("accent", nameInput)}  ${theme.fg("dim", "  [e] edit name")}`);
+            }
+            lines.push(``);
+            lines.push(` ${theme.fg("dim", "[Enter/y] accept  [e] edit name  [q/Esc] cancel  [j/k] scroll")}`);
+            lines.push(hr);
+
+            // Apply scroll
+            const maxVisible = height - 2;
+            if (lines.length > maxVisible) {
+              const maxScroll = Math.max(0, lines.length - maxVisible);
+              scroll = Math.min(scroll, maxScroll);
+              cache = lines.slice(scroll, scroll + maxVisible);
+            } else {
+              cache = lines;
+            }
+            return cache;
+          }
+
+          const content = { render, invalidate: () => { cache = undefined; } };
+          const box = new Box(1, 1, (text: string) => `\x1b[48;5;237m${text}\x1b[49m`);
+          box.addChild(content);
+          (box as any).handleInput = handleInput;
+          return box;
+        },
+        {
+          overlay: true,
+          overlayOptions: {
+            width: "80%",
+            minWidth: 60,
+            anchor: "center",
+          },
+        },
+      );
+
+      if (result.action === "cancel") {
+        ctx.ui.notify("Onboard cancelled.", "info");
         return;
       }
 
-      const { analysis, cwd } = pendingOnboard;
-      const customName = args.trim();
-
-      // If a custom name is provided, update the analysis
-      if (customName) {
-        const sanitized = customName
-          .replace(/[^a-zA-Z0-9._-]/g, "-")
-          .replace(/-+/g, "-")
-          .replace(/^-|-$/g, "")
-          .toLowerCase();
-
-        if (!sanitized) {
-          ctx.ui.notify("❌ Invalid package name.", "error");
-          return;
-        }
-
-        // Check for conflicts with the new name
-        const newTarget = resolve(PACKAGES_DIR, sanitized);
+      // Update name if changed
+      if (result.name !== analysis.name) {
+        const newTarget = resolve(PACKAGES_DIR, result.name);
         if (existsSync(newTarget)) {
-          ctx.ui.notify(`❌ Package "${sanitized}" already exists in the pool.`, "error");
+          ctx.ui.notify(`❌ Package "${result.name}" already exists in the pool.`, "error");
           return;
         }
-
-        analysis.name = sanitized;
-        analysis.targetDir = resolve(PACKAGES_DIR, sanitized);
+        analysis.name = result.name;
+        analysis.targetDir = resolve(PACKAGES_DIR, result.name);
       }
 
       try {
@@ -589,16 +685,14 @@ export default function (pi: ExtensionAPI) {
         // Auto git-sync if git is enabled
         if (isGitEnabled()) {
           try {
-            const result = gitSyncPool();
-            ctx.ui.notify(`🔄 Git sync: ${result.message}`, "info");
+            const syncResult = gitSyncPool();
+            ctx.ui.notify(`🔄 Git sync: ${syncResult.message}`, "info");
           } catch (e: any) {
             ctx.ui.notify(`⚠️ Git sync failed: ${e.message}`, "warning");
           }
         }
       } catch (e: any) {
         ctx.ui.notify(`❌ Onboard failed: ${e.message}`, "error");
-      } finally {
-        pendingOnboard = null;
       }
     },
   });
