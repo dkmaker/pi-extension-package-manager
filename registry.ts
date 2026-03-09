@@ -44,7 +44,10 @@ export function removePackage(name: string): void {
 
 export function listPackages(): PackageEntry[] {
   const reg = loadRegistry();
-  return Object.values(reg.packages).sort((a, b) => a.name.localeCompare(b.name));
+  const order: Record<string, number> = { git: 0, npm: 1, local: 2 };
+  return Object.values(reg.packages).sort((a, b) =>
+    (order[a.sourceType] ?? 9) - (order[b.sourceType] ?? 9) || a.name.localeCompare(b.name)
+  );
 }
 
 export function packageDir(name: string): string {

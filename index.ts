@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { matchesKey, Key, truncateToWidth, Box } from "@mariozechner/pi-tui";
-import { existsSync, mkdirSync, rmSync } from "fs";
-import { resolve, basename } from "path";
+import { existsSync, mkdirSync, rmSync, readFileSync, readdirSync, statSync } from "fs";
+import { resolve, basename, join, extname } from "path";
 import { PACKAGES_DIR, PKG_MGR_ROOT, type PackageEntry } from "./constants.js";
 import {
   loadRegistry,
@@ -26,6 +26,59 @@ import {
 import { analyzeOnboard, executeOnboard } from "./onboard.js";
 import { gitInitPool, gitSyncPool, isGitEnabled, getGitRemote, ensureGitignore } from "./git-pool.js";
 import { checkAllUpdates, getPendingUpdates, applyUpdate, applyAllUpdates } from "./updates.js";
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+/** Read source files for agent review, with size limits */
+function readSourceFiles(sourcePath: string, type: string): string {
+  const MAX_FILE_SIZE = 8000; // chars per file
+  const MAX_TOTAL = 32000; // total chars
+  const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build"]);
+  const TEXT_EXTS = new Set([".ts", ".js", ".json", ".md", ".txt", ".yaml", ".yml", ".toml"]);
+
+  let total = 0;
+  const parts: string[] = [];
+
+  function addFile(filePath: string, label: string) {
+    if (total >= MAX_TOTAL) return;
+    try {
+      const ext = extname(filePath);
+      if (!TEXT_EXTS.has(ext)) return;
+      let content = readFileSync(filePath, "utf-8");
+      if (content.length > MAX_FILE_SIZE) {
+        content = content.slice(0, MAX_FILE_SIZE) + "\n... (truncated)";
+      }
+      const lang = ext === ".ts" ? "typescript" : ext === ".js" ? "javascript" : ext.slice(1);
+      parts.push(`### ${label}\n\`\`\`${lang}\n${content}\n\`\`\``);
+      total += content.length;
+    } catch {}
+  }
+
+  if (type === "single-file") {
+    addFile(sourcePath, basename(sourcePath));
+  } else {
+    function walk(dir: string, prefix: string) {
+      if (total >= MAX_TOTAL) return;
+      for (const entry of readdirSync(dir)) {
+        if (SKIP_DIRS.has(entry)) continue;
+        const full = join(dir, entry);
+        try {
+          const st = statSync(full);
+          if (st.isDirectory()) {
+            walk(full, `${prefix}${entry}/`);
+          } else {
+            addFile(full, `${prefix}${entry}`);
+          }
+        } catch {}
+      }
+    }
+    walk(sourcePath, "");
+  }
+
+  return parts.length ? parts.join("\n\n") : "(no readable source files found)";
+}
 
 // ============================================================================
 // Extension entry point
@@ -426,15 +479,17 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // ── /packages-onboard — absorb an existing extension ───────────────────
+  // ── /packages-onboard — analyze & agent review ─────────────────────────
+  // Pending onboard state for the confirm step
+  let pendingOnboard: { analysis: ReturnType<typeof analyzeOnboard>; cwd: string } | null = null;
+
   pi.registerCommand("packages-onboard", {
     description: "Onboard an existing extension into the pool: /packages-onboard <path>",
-    handler: async (args, ctx) => {
+    handler: async (args, _ctx) => {
       const sourcePath = args.trim();
       if (!sourcePath) {
-        ctx.ui.notify(
+        pi.sendUserMessage(
           "Usage: /packages-onboard <path>\n\nExamples:\n  /packages-onboard .pi/extensions/my-ext.ts\n  /packages-onboard .pi/extensions/my-dir-ext/",
-          "warning"
         );
         return;
       }
@@ -443,90 +498,80 @@ export default function (pi: ExtensionAPI) {
       const analysis = analyzeOnboard(sourcePath, cwd);
 
       if (!analysis.valid) {
-        ctx.ui.notify(`❌ Cannot onboard: ${analysis.error}`, "error");
+        pi.sendUserMessage(`❌ Cannot onboard: ${analysis.error}`);
         return;
       }
 
-      // Show confirmation
-      const lines = [
-        `📦 Onboard Analysis:`,
-        `  Source: ${analysis.sourcePath}`,
-        `  Type: ${analysis.type}`,
-        `  Name: ${analysis.name}`,
+      // Store pending onboard for confirm step
+      pendingOnboard = { analysis, cwd };
+
+      // Read source files to give the agent full context
+      const sourceContents = readSourceFiles(analysis.sourcePath, analysis.type);
+
+      // Build agent review prompt
+      const prompt = [
+        `📦 **Package Onboard Review**`,
         ``,
-        `  Will:`,
-        ...analysis.steps.map(s => `    ${s}`),
+        `I'm onboarding a package from: \`${analysis.sourcePath}\``,
+        `Detected type: ${analysis.type}`,
+        `Auto-derived name: \`${analysis.name}\``,
         ``,
-        `  Proceed? Type 'yes' to confirm.`,
-      ];
-      ctx.ui.notify(lines.join("\n"), "info");
+        `**Source files:**`,
+        ``,
+        sourceContents,
+        ``,
+        `---`,
+        ``,
+        `Please review this package and:`,
+        `1. Explain what it does (brief summary)`,
+        `2. Identify whether it's an extension, skill, prompt, or mixed package`,
+        `3. Propose a good descriptive package name (lowercase, hyphenated, concise — e.g. \`web-search\`, \`project-management\`, \`dump-context\`)`,
+        `4. If the auto-derived name \`${analysis.name}\` is already good, say so`,
+        ``,
+        `Then tell the user to run:`,
+        `- \`/packages-onboard-confirm\` to accept the auto-derived name \`${analysis.name}\``,
+        `- \`/packages-onboard-confirm <new-name>\` to use your proposed name or their own`,
+        `- The name must be lowercase, alphanumeric with hyphens only`,
+      ].join("\n");
 
-      // Wait for confirmation via a simple custom UI
-      const confirmed = await ctx.ui.custom<boolean>(
-        (tui, theme, _kb, done) => {
-          let input = "";
-          let cache: string[] | undefined;
+      pi.sendUserMessage(prompt);
+    },
+  });
 
-          function handleInput(data: string) {
-            if (matchesKey(data, Key.escape)) {
-              done(false);
-              return;
-            }
-            if (matchesKey(data, Key.enter)) {
-              done(input.toLowerCase() === "yes" || input.toLowerCase() === "y");
-              return;
-            }
-            if (matchesKey(data, Key.backspace)) {
-              input = input.slice(0, -1);
-              cache = undefined;
-              tui.requestRender();
-              return;
-            }
-            if (data.length === 1 && data >= " ") {
-              input += data;
-              cache = undefined;
-              tui.requestRender();
-            }
-          }
-
-          function render(width: number): string[] {
-            if (cache) return cache;
-            cache = [
-              theme.fg("accent", "─".repeat(width)),
-              ` 📦 Onboard: ${analysis.name}`,
-              theme.fg("accent", "─".repeat(width)),
-              ``,
-              ` Source: ${theme.fg("dim", analysis.sourcePath)}`,
-              ` Target: ${theme.fg("dim", analysis.targetDir)}`,
-              ``,
-              ...analysis.steps.map(s => ` ${s}`),
-              ``,
-              theme.fg("accent", "─".repeat(width)),
-              ` Confirm? ${theme.fg("accent", input)}${theme.fg("dim", " (yes/no, Esc to cancel)")}`,
-              theme.fg("accent", "─".repeat(width)),
-            ];
-            return cache;
-          }
-
-          const content = { render, invalidate: () => { cache = undefined; } };
-          const box = new Box(1, 1, (text: string) => `\x1b[48;5;237m${text}\x1b[49m`);
-          box.addChild(content);
-          (box as any).handleInput = handleInput;
-          return box;
-        },
-        {
-          overlay: true,
-          overlayOptions: {
-            width: "70%",
-            minWidth: 50,
-            anchor: "center",
-          },
-        },
-      );
-
-      if (!confirmed) {
-        ctx.ui.notify("Onboard cancelled.", "info");
+  // ── /packages-onboard-confirm — execute the pending onboard ───────────
+  pi.registerCommand("packages-onboard-confirm", {
+    description: "Confirm and execute pending onboard: /packages-onboard-confirm [name]",
+    handler: async (args, ctx) => {
+      if (!pendingOnboard) {
+        ctx.ui.notify("❌ No pending onboard. Run /packages-onboard <path> first.", "error");
         return;
+      }
+
+      const { analysis, cwd } = pendingOnboard;
+      const customName = args.trim();
+
+      // If a custom name is provided, update the analysis
+      if (customName) {
+        const sanitized = customName
+          .replace(/[^a-zA-Z0-9._-]/g, "-")
+          .replace(/-+/g, "-")
+          .replace(/^-|-$/g, "")
+          .toLowerCase();
+
+        if (!sanitized) {
+          ctx.ui.notify("❌ Invalid package name.", "error");
+          return;
+        }
+
+        // Check for conflicts with the new name
+        const newTarget = resolve(PACKAGES_DIR, sanitized);
+        if (existsSync(newTarget)) {
+          ctx.ui.notify(`❌ Package "${sanitized}" already exists in the pool.`, "error");
+          return;
+        }
+
+        analysis.name = sanitized;
+        analysis.targetDir = resolve(PACKAGES_DIR, sanitized);
       }
 
       try {
@@ -540,8 +585,20 @@ export default function (pi: ExtensionAPI) {
         const allPkgs = listPackages();
         const manifest = loadRepoManifest(cwd);
         ctx.ui.setStatus("pkg-count", `📦 ${manifest.enabled.length}/${allPkgs.length}`);
+
+        // Auto git-sync if git is enabled
+        if (isGitEnabled()) {
+          try {
+            const result = gitSyncPool();
+            ctx.ui.notify(`🔄 Git sync: ${result.message}`, "info");
+          } catch (e: any) {
+            ctx.ui.notify(`⚠️ Git sync failed: ${e.message}`, "warning");
+          }
+        }
       } catch (e: any) {
         ctx.ui.notify(`❌ Onboard failed: ${e.message}`, "error");
+      } finally {
+        pendingOnboard = null;
       }
     },
   });
