@@ -202,7 +202,8 @@ export function gitFetchCheck(dir: string): boolean {
 }
 
 export function gitPull(dir: string): string {
-  execSync("git pull", { cwd: dir, stdio: "pipe" });
+  execSync("git fetch --depth=1", { cwd: dir, stdio: "pipe" });
+  execSync("git reset --hard FETCH_HEAD", { cwd: dir, stdio: "pipe" });
   return execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf-8" }).trim();
 }
 
