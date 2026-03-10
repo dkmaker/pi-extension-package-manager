@@ -29,7 +29,7 @@ import {
 } from "./store.js";
 import { validatePackage } from "./onboard.js";
 import { gitInitPool, gitSyncPool, isGitEnabled, getGitRemote, ensureGitignore } from "./git-pool.js";
-import { checkAllUpdates, getPendingUpdates, applyUpdate, applyAllUpdates } from "./updates.js";
+import { checkAllUpdates, forceCheckAllUpdates, getPendingUpdates, applyUpdate, applyAllUpdates } from "./updates.js";
 
 // ============================================================================
 // Extension entry point
@@ -398,9 +398,11 @@ export default function (pi: ExtensionAPI) {
 
   // ── /packages-update — apply updates ───────────────────────────────────
   pi.registerCommand("packages-update", {
-    description: "Update packages: /packages-update [name] or /packages-update (all)",
+    description: "Update packages: /packages-update [name|--force|-f] — use --force/-f to bypass update cache",
     handler: async (args, ctx) => {
-      const name = args.trim();
+      const parts = args.trim().split(/\s+/).filter(Boolean);
+      const force = parts.includes("--force") || parts.includes("-f");
+      const name = parts.filter(p => p !== "--force" && p !== "-f").join(" ");
 
       if (name) {
         // Update single package
@@ -414,10 +416,10 @@ export default function (pi: ExtensionAPI) {
       } else {
         // Update all
         const pending = getPendingUpdates();
-        if (pending.length === 0) {
-          // Force check first
-          ctx.ui.notify("📦 Checking for updates...", "info");
-          const withUpdates = checkAllUpdates();
+        if (pending.length === 0 || force) {
+          // Check for updates (force bypasses the interval cache)
+          ctx.ui.notify(force ? "📦 Force checking all packages..." : "📦 Checking for updates...", "info");
+          const withUpdates = force ? forceCheckAllUpdates() : checkAllUpdates();
           if (withUpdates.length === 0) {
             ctx.ui.notify("✅ All packages are up to date.", "info");
             return;

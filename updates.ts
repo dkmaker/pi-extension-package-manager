@@ -95,6 +95,23 @@ export function checkAllUpdates(): string[] {
 }
 
 /**
+ * Force check all packages regardless of lastUpdateCheck interval.
+ * Returns names of packages with updates.
+ */
+export function forceCheckAllUpdates(): string[] {
+  const withUpdates: string[] = [];
+
+  for (const pkg of listPackages()) {
+    if (pkg.sourceType === "local" && !isLocalGitPackage(pkg)) continue;
+    if (checkPackageUpdate(pkg)) {
+      withUpdates.push(pkg.name);
+    }
+  }
+
+  return withUpdates;
+}
+
+/**
  * Get all packages that have pending updates (already checked).
  */
 export function getPendingUpdates(): PackageEntry[] {
