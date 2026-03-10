@@ -76,14 +76,6 @@ export default function (pi: ExtensionAPI) {
     // Background update check (non-blocking)
     setTimeout(() => {
       try {
-        // Check pool git remote first
-        if (isGitEnabled() && checkPoolUpdate()) {
-          const pullResult = gitPullPool();
-          if (pullResult.success) {
-            ctx.ui.notify(`📦 Pool updated from remote: ${pullResult.message}\nRun /reload to apply changes.`, "info");
-          }
-        }
-
         const updated = checkAllUpdates();
         const pending = getPendingUpdates();
         if (pending.length > 0) {
