@@ -39,7 +39,7 @@
       "type": "feature",
       "title": "/packages-list should show source file below each package entry",
       "description": "In the `/packages-list` output, each package entry should display its source file/path on a second line below the package name line, so users can quickly see where each package comes from.",
-      "status": "in-progress",
+      "status": "closed",
       "linkedIssueIds": [],
       "questions": [],
       "research": [
@@ -50,10 +50,36 @@
         }
       ],
       "createdAt": "2026-03-10T14:41:33.017Z",
-      "updatedAt": "2026-03-10T14:41:54.661Z",
+      "updatedAt": "2026-03-10T15:31:43.915Z",
       "autoValidation": {
         "type": "human",
         "strategy": "User confirms source is visible below each package in /packages-list output"
+      },
+      "closeMessage": "Source path now shown below each package entry. Local packages show pool dir, git/npm show their source. Also fixed blocking startup freeze by making pool check async with hourly throttle.",
+      "closeReason": "done",
+      "validations": [
+        {
+          "criterion": "In the `/packages-list` output, each package entry should display its source file/path on a second line below the package name line, so users can quickly see where each package comes from.",
+          "evidence": "User confirmed \"Now it does not freeze good job!\" — source paths visible, no blocking at startup.",
+          "met": true
+        }
+      ],
+      "closedAt": "2026-03-10T15:31:43.915Z"
+    },
+    {
+      "id": "2sn0zlub",
+      "type": "chore",
+      "title": "Bump version to 2.3.0",
+      "description": "Bump package.json version from 2.2.0 to 2.3.0 to reflect recent fixes and features: FETCH_HEAD update check, fetch+reset pull, /packages-push pool sync, async pool update check, /packages-list source paths.",
+      "status": "in-progress",
+      "linkedIssueIds": [],
+      "questions": [],
+      "research": [],
+      "createdAt": "2026-03-10T15:32:45.674Z",
+      "updatedAt": "2026-03-10T15:32:53.622Z",
+      "autoValidation": {
+        "type": "agent",
+        "strategy": "Check package.json version is 2.3.0"
       }
     }
   ],

@@ -1,6 +1,6 @@
 {
   "name": "@dkmaker/pi-extension-package-manager",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Package manager for pi — manage extensions, skills, and prompts across projects using pi's native package system",
   "type": "module",
   "keywords": ["pi-package"],
