@@ -29,7 +29,7 @@ export PI_DEVMODE_ENABLED=1
 
 CONFIG="$REPO_ROOT/dev_additional_extensions.json"
 
-ARGS=(--extension "$REPO_ROOT" --extension "$REPO_ROOT/devmode.ts")
+ARGS=(--extension "$REPO_ROOT" --extension "$REPO_ROOT/.pi/extensions/devmode.ts")
 
 if [ -f "$CONFIG" ]; then
   while IFS= read -r ext; do
