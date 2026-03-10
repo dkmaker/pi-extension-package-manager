@@ -71,16 +71,26 @@
       "type": "chore",
       "title": "Bump version to 2.3.0",
       "description": "Bump package.json version from 2.2.0 to 2.3.0 to reflect recent fixes and features: FETCH_HEAD update check, fetch+reset pull, /packages-push pool sync, async pool update check, /packages-list source paths.",
-      "status": "in-progress",
+      "status": "closed",
       "linkedIssueIds": [],
       "questions": [],
       "research": [],
       "createdAt": "2026-03-10T15:32:45.674Z",
-      "updatedAt": "2026-03-10T15:32:53.622Z",
+      "updatedAt": "2026-03-10T15:33:10.482Z",
       "autoValidation": {
         "type": "agent",
         "strategy": "Check package.json version is 2.3.0"
-      }
+      },
+      "closeMessage": "Bumped to 2.3.0 and pushed.",
+      "closeReason": "done",
+      "validations": [
+        {
+          "criterion": "Bump package.json version from 2.2.0 to 2.3.0 to reflect recent fixes and features: FETCH_HEAD update check, fetch+reset pull, /packages-push pool sync, async pool update check, /packages-list source paths.",
+          "evidence": "package.json shows \"version\": \"2.3.0\" — confirmed.",
+          "met": true
+        }
+      ],
+      "closedAt": "2026-03-10T15:33:10.482Z"
     }
   ],
   "categories": [
