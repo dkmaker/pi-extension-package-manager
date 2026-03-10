@@ -1,2 +1,4 @@
 node_modules/
 .pi/
+dev_additional_extensions.json
+.pi-home

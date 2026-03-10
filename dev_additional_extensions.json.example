@@ -1,0 +1,7 @@
+{
+  "extensions": [
+    "~/.pi/packagemanager/packages/pi-extension-project-management/index.ts"
+  ],
+  "skills": [],
+  "prompts": []
+}
