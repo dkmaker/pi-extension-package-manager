@@ -7,7 +7,7 @@
       "type": "bug",
       "title": "/packages-push should push pool git repo, and /packages-update should pull it",
       "description": "When `gitRemote` is configured on the pool, two things are broken:\n\n1. **`/packages-push`** iterates individual packages looking for ones with their own git remotes, always resulting in \"No local packages with a source path found.\" It should instead commit+push the entire pool directory (`PKG_MGR_ROOT`) to the configured `gitRemote` — covering all local (non-git, non-npm) packages.\n\n2. **`/packages-update`** (and the background update check on session start) does not check if the pool git remote has newer commits. If another machine pushed local packages to the pool remote, the current machine will never pull them in.\n\n**Expected behavior:**\n- `/packages-push` → stages, commits, and pushes the pool repo to `gitRemote` (only when `gitRemote` is configured)\n- `/packages-update` (and background check) → also fetches pool remote and pulls if behind (only when `gitRemote` is configured)\n- `/packages-git-sync` already does both directions — the fix should align `/packages-push` and update-check logic with this existing behavior",
-      "status": "in-progress",
+      "status": "closed",
       "linkedIssueIds": [],
       "questions": [],
       "research": [
@@ -18,10 +18,42 @@
         }
       ],
       "createdAt": "2026-03-10T14:33:22.805Z",
-      "updatedAt": "2026-03-10T14:35:09.545Z",
+      "updatedAt": "2026-03-10T14:40:27.269Z",
       "autoValidation": {
         "type": "human",
         "strategy": "User verifies /packages-push commits+pushes pool to gitRemote, and update check detects/pulls pool changes"
+      },
+      "closeMessage": "Fixed: /packages-push now pushes the pool repo to gitRemote. Background update check and /packages-update both pull the pool if the remote is ahead. User confirmed working.",
+      "closeReason": "done",
+      "validations": [
+        {
+          "criterion": "When `gitRemote` is configured on the pool, two things are broken:\n\n1. **`/packages-push`** iterates individual packages looking for ones with their own git remotes, always resulting in \"No local packages with a source path found.\" It should instead commit+push the entire pool directory (`PKG_MGR_ROOT`) to the configured `gitRemote` — covering all local (non-git, non-npm) packages.\n\n2. **`/packages-update`** (and the background update check on session start) does not check if the pool git remote has newer commits. If another machine pushed local packages to the pool remote, the current machine will never pull them in.\n\n**Expected behavior:**\n- `/packages-push` → stages, commits, and pushes the pool repo to `gitRemote` (only when `gitRemote` is configured)\n- `/packages-update` (and background check) → also fetches pool remote and pulls if behind (only when `gitRemote` is configured)\n- `/packages-git-sync` already does both directions — the fix should align `/packages-push` and update-check logic with this existing behavior",
+          "evidence": "User confirmed with \"Yes thx\". Pool git check verified — LOCAL and FETCH_HEAD match after fetch. /packages-push now commits+pushes pool repo via gitPushPool(). Session start and /packages-update both check pool remote via checkPoolUpdate() and pull if behind via gitPullPool().",
+          "met": true
+        }
+      ],
+      "closedAt": "2026-03-10T14:40:27.269Z"
+    },
+    {
+      "id": "bcrd41y8",
+      "type": "feature",
+      "title": "/packages-list should show source file below each package entry",
+      "description": "In the `/packages-list` output, each package entry should display its source file/path on a second line below the package name line, so users can quickly see where each package comes from.",
+      "status": "in-progress",
+      "linkedIssueIds": [],
+      "questions": [],
+      "research": [
+        {
+          "type": "reference",
+          "content": "Current output line: `  [✓] pkg-name — description (source)`\n\nSource is appended inline for git/npm via `pkg.source`. For local packages `src` is empty string.\n\nLocal packages have `onboardedFrom` field with the original path. The fix is to add an indented second line with the source/path for all package types:\n- git/npm: `pkg.source`  \n- local: `pkg.onboardedFrom` (fallback to `pkg.source` if not set)\n\nChange `lines.push(` for the package line to also push a dim source line after it.",
+          "addedAt": "2026-03-10T14:41:49.507Z"
+        }
+      ],
+      "createdAt": "2026-03-10T14:41:33.017Z",
+      "updatedAt": "2026-03-10T14:41:54.661Z",
+      "autoValidation": {
+        "type": "human",
+        "strategy": "User confirms source is visible below each package in /packages-list output"
       }
     }
   ],

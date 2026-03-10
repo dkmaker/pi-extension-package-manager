@@ -273,8 +273,9 @@ export default function (pi: ExtensionAPI) {
         const enabled = enabledSet.has(pkg.name);
         const icon = enabled ? "✓" : "·";
         const update = pkg.updateAvailable ? " ⬆" : "";
-        const src = pkg.sourceType !== "local" ? ` (${pkg.source})` : "";
-        lines.push(`  [${icon}] ${pkg.name}${update} — ${getPackageDescription(pkg.name)}${src}`);
+        lines.push(`  [${icon}] ${pkg.name}${update} — ${getPackageDescription(pkg.name)}`);
+        const srcPath = pkg.sourceType === "local" ? (pkg.onboardedFrom || pkg.source) : pkg.source;
+        if (srcPath) lines.push(`       ${srcPath}`);
       }
 
       lines.push(`\n✓=enabled for this repo  ·=available  ⬆=update available`);
