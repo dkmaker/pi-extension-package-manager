@@ -1,7 +1,30 @@
 {
   "version": 7,
   "epics": [],
-  "issues": [],
+  "issues": [
+    {
+      "id": "l11sbqs0",
+      "type": "bug",
+      "title": "/packages-push should push pool git repo, and /packages-update should pull it",
+      "description": "When `gitRemote` is configured on the pool, two things are broken:\n\n1. **`/packages-push`** iterates individual packages looking for ones with their own git remotes, always resulting in \"No local packages with a source path found.\" It should instead commit+push the entire pool directory (`PKG_MGR_ROOT`) to the configured `gitRemote` — covering all local (non-git, non-npm) packages.\n\n2. **`/packages-update`** (and the background update check on session start) does not check if the pool git remote has newer commits. If another machine pushed local packages to the pool remote, the current machine will never pull them in.\n\n**Expected behavior:**\n- `/packages-push` → stages, commits, and pushes the pool repo to `gitRemote` (only when `gitRemote` is configured)\n- `/packages-update` (and background check) → also fetches pool remote and pulls if behind (only when `gitRemote` is configured)\n- `/packages-git-sync` already does both directions — the fix should align `/packages-push` and update-check logic with this existing behavior",
+      "status": "in-progress",
+      "linkedIssueIds": [],
+      "questions": [],
+      "research": [
+        {
+          "type": "reference",
+          "content": "## Baseline\n\n### Pool git infrastructure (`git-pool.ts`)\n- `gitSyncPool()` — stages, commits, pull --rebase, push. Full bidirectional sync.\n- `gitInitPool()` — sets up pool git repo + remote, saves `gitRemote` in registry.\n- `isGitEnabled()` — checks for `.git` in `PKG_MGR_ROOT`\n- `getGitRemote()` — reads `gitRemote` from registry\n- `ensureGitignore()` — gitignores git/npm packages; tracks local ones\n\n### `/packages-push` (index.ts ~455)\nCurrently iterates individual packages looking for `sourceType === \"local\"` with a non-\"local\" source path (i.e. a path to a git repo on disk). All local packages in registry have `source: \"local\"` so the filter always returns empty → \"No local packages with a source path found.\"\n\n**Fix:** Should instead call a new `gitPushPool()` function (or reuse part of `gitSyncPool`) that stages+commits+pushes `PKG_MGR_ROOT` to `gitRemote`. Guard with `isGitEnabled()`.\n\n### Background update check / `/packages-update` (index.ts ~76, updates.ts)\n`checkAllUpdates()` → `checkPackageUpdate()` only handles `sourceType === \"git\"`, `\"npm\"`, and `\"local\"` with `isLocalGitPackage`. Never checks if the pool repo itself is behind its `gitRemote`.\n\n**Fix:** Add a `checkPoolUpdate()` function in `git-pool.ts` that does `git fetch` + compares `HEAD` vs `FETCH_HEAD` on `PKG_MGR_ROOT`. Call it from the background check on session start and from `/packages-update`. If behind, pull (and notify user).\n\n### Key files\n- `git-pool.ts` — add `gitPushPool()` and `checkPoolUpdate()` / `gitPullPool()`\n- `updates.ts` — call pool check in `checkAllUpdates` / `forceCheckAllUpdates`\n- `index.ts` — fix `/packages-push` handler to call `gitPushPool()`, update session_start check\n",
+          "addedAt": "2026-03-10T14:34:30.673Z"
+        }
+      ],
+      "createdAt": "2026-03-10T14:33:22.805Z",
+      "updatedAt": "2026-03-10T14:35:09.545Z",
+      "autoValidation": {
+        "type": "human",
+        "strategy": "User verifies /packages-push commits+pushes pool to gitRemote, and update check detects/pulls pool changes"
+      }
+    }
+  ],
   "categories": [
     {
       "slug": "general",

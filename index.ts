@@ -28,7 +28,7 @@ import {
   repoHash,
 } from "./store.js";
 import { validatePackage } from "./onboard.js";
-import { gitInitPool, gitSyncPool, isGitEnabled, getGitRemote, ensureGitignore } from "./git-pool.js";
+import { gitInitPool, gitSyncPool, gitPushPool, checkPoolUpdate, gitPullPool, isGitEnabled, getGitRemote, ensureGitignore } from "./git-pool.js";
 import { checkAllUpdates, forceCheckAllUpdates, getPendingUpdates, applyUpdate, applyAllUpdates } from "./updates.js";
 
 // ============================================================================
@@ -76,6 +76,14 @@ export default function (pi: ExtensionAPI) {
     // Background update check (non-blocking)
     setTimeout(() => {
       try {
+        // Check pool git remote first
+        if (isGitEnabled() && checkPoolUpdate()) {
+          const pullResult = gitPullPool();
+          if (pullResult.success) {
+            ctx.ui.notify(`📦 Pool updated from remote: ${pullResult.message}\nRun /reload to apply changes.`, "info");
+          }
+        }
+
         const updated = checkAllUpdates();
         const pending = getPendingUpdates();
         if (pending.length > 0) {
@@ -414,7 +422,15 @@ export default function (pi: ExtensionAPI) {
           ctx.ui.notify(`❌ ${result.name}: ${result.message}`, "error");
         }
       } else {
-        // Update all
+        // Update all — check pool first
+        if (isGitEnabled()) {
+          ctx.ui.notify("📦 Checking pool remote...", "info");
+          if (checkPoolUpdate()) {
+            const pullResult = gitPullPool();
+            ctx.ui.notify(pullResult.success ? `✅ Pool: ${pullResult.message}` : `❌ Pool pull failed: ${pullResult.message}`, pullResult.success ? "info" : "error");
+          }
+        }
+
         const pending = getPendingUpdates();
         if (pending.length === 0 || force) {
           // Check for updates (force bypasses the interval cache)
@@ -452,41 +468,17 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // ── /packages-push — push local git packages to remote ─────────────────
+  // ── /packages-push — push pool to git remote ────────────────────────────
   pi.registerCommand("packages-push", {
-    description: "Push local git-tracked package(s) to remote: /packages-push [name] (omit name to push all)",
-    handler: async (args, ctx) => {
-      const name = args.trim();
-
-      const pushOne = (pkg: PackageEntry): string => {
-        if (pkg.sourceType !== "local") return `"${pkg.name}" is not a local package — skipped`;
-        const sourcePath = pkg.source;
-        if (!sourcePath || sourcePath === "local") return `"${pkg.name}" has no stored source path — skipped`;
-        if (!existsSync(sourcePath)) return `"${pkg.name}" source path no longer exists: ${sourcePath}`;
-        if (!isGitRepo(sourcePath) || !gitHasRemote(sourcePath)) return `"${pkg.name}" source is not a git repo with a remote — skipped`;
-        try {
-          gitPush(sourcePath);
-          return `✅ ${pkg.name}`;
-        } catch (e: any) {
-          return `❌ ${pkg.name}: ${e.message}`;
-        }
-      };
-
-      if (name) {
-        const pkg = listPackages().find(p => p.name === name);
-        if (!pkg) { ctx.ui.notify(`Package "${name}" not found in pool.`, "error"); return; }
-        ctx.ui.notify(`📦 Pushing ${name}...`, "info");
-        ctx.ui.notify(pushOne(pkg), "info");
-      } else {
-        const localGitPkgs = listPackages().filter(p => p.sourceType === "local" && p.source && p.source !== "local");
-        if (localGitPkgs.length === 0) {
-          ctx.ui.notify("No local packages with a source path found.", "warning");
-          return;
-        }
-        ctx.ui.notify(`📦 Pushing ${localGitPkgs.length} local package(s)...`, "info");
-        const results = localGitPkgs.map(pushOne);
-        ctx.ui.notify(results.join("\n"), "info");
+    description: "Push the package pool (all local packages) to its git remote",
+    handler: async (_args, ctx) => {
+      if (!isGitEnabled()) {
+        ctx.ui.notify("Git is not enabled for the pool. Use /packages-git-init <remote> first.", "warning");
+        return;
       }
+      ctx.ui.notify("📦 Pushing pool to remote...", "info");
+      const result = gitPushPool();
+      ctx.ui.notify(result.success ? `✅ ${result.message}` : `❌ ${result.message}`, result.success ? "info" : "error");
     },
   });
 

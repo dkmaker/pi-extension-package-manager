@@ -142,6 +142,67 @@ export function ensureGitignore(): void {
 }
 
 // ============================================================================
+// Push only
+// ============================================================================
+
+/**
+ * Stage, commit, and push the pool to its git remote.
+ */
+export function gitPushPool(): { success: boolean; message: string } {
+  if (!isGitEnabled()) {
+    return { success: false, message: "Git is not enabled for the package pool. Use /packages-git-init <remote> first." };
+  }
+
+  try {
+    execSync("git add -A", { cwd: PKG_MGR_ROOT, stdio: "pipe" });
+    const status = execSync("git status --porcelain", { cwd: PKG_MGR_ROOT, encoding: "utf-8" }).trim();
+    if (status) {
+      execSync('git commit -m "Package manager sync"', { cwd: PKG_MGR_ROOT, stdio: "pipe" });
+    }
+    execSync("git push -u origin HEAD", { cwd: PKG_MGR_ROOT, stdio: "pipe" });
+    return { success: true, message: status ? "Committed and pushed pool to remote." : "Nothing to commit — pushed to remote." };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+// ============================================================================
+// Pool update check / pull
+// ============================================================================
+
+/**
+ * Check if the pool git remote has newer commits.
+ */
+export function checkPoolUpdate(): boolean {
+  if (!isGitEnabled()) return false;
+  try {
+    execSync("git fetch --depth=1", { cwd: PKG_MGR_ROOT, stdio: "pipe" });
+    const local = execSync("git rev-parse HEAD", { cwd: PKG_MGR_ROOT, encoding: "utf-8" }).trim();
+    const remote = execSync("git rev-parse FETCH_HEAD", { cwd: PKG_MGR_ROOT, encoding: "utf-8" }).trim();
+    return local !== remote;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Pull the pool from its git remote (rebase).
+ */
+export function gitPullPool(): { success: boolean; message: string } {
+  if (!isGitEnabled()) {
+    return { success: false, message: "Git is not enabled for the pool." };
+  }
+  try {
+    execSync("git fetch --depth=1", { cwd: PKG_MGR_ROOT, stdio: "pipe" });
+    execSync("git reset --hard FETCH_HEAD", { cwd: PKG_MGR_ROOT, stdio: "pipe" });
+    const commit = execSync("git rev-parse --short HEAD", { cwd: PKG_MGR_ROOT, encoding: "utf-8" }).trim();
+    return { success: true, message: `Pool updated to ${commit}.` };
+  } catch (e: any) {
+    return { success: false, message: e.message };
+  }
+}
+
+// ============================================================================
 // Helpers
 // ============================================================================
 
