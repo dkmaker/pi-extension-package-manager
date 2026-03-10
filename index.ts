@@ -274,9 +274,11 @@ export default function (pi: ExtensionAPI) {
         const icon = enabled ? "✓" : "·";
         const update = pkg.updateAvailable ? " ⬆" : "";
         lines.push(`  [${icon}] ${pkg.name}${update} — ${getPackageDescription(pkg.name)}`);
-        const rawSrc = pkg.sourceType === "local" ? (pkg.onboardedFrom || pkg.source) : pkg.source;
-        const srcPath = (rawSrc && rawSrc !== "local" && rawSrc !== "onboarded") ? rawSrc : undefined;
-        if (srcPath) lines.push(`       ${srcPath}`);
+        const srcPath = pkg.sourceType === "local" ? packageDir(pkg.name) : pkg.source;
+        if (srcPath) {
+          const note = pkg.onboardedFrom && pkg.onboardedFrom !== "local" && pkg.onboardedFrom !== "onboarded" ? ` (from: ${pkg.onboardedFrom})` : "";
+          lines.push(`       ${srcPath}${note}`);
+        }
       }
 
       lines.push(`\n✓=enabled for this repo  ·=available  ⬆=update available`);
