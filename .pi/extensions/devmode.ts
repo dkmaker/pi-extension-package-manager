@@ -7,31 +7,18 @@ const IS_DEVMODE = process.env.PI_DEVMODE_ENABLED === "1";
 export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     if (IS_DEVMODE) {
-      // Rotating light widget above editor
-      let frame = 0;
-      const interval = setInterval(() => {
-        frame++;
-        ctx.ui.setWidget("devmode-banner", (_tui: any, theme: any) => ({
-          render(width: number): string[] {
-            const lights = "🚨🔧🚨🔧🚨";
-            const label = " DEVMODE ACTIVE ";
-            const f = frame % 2;
-            const l = f === 0 ? lights : "🔧🚨🔧🚨🔧";
-            const text = `${l}${label}${l}`;
-            const pad = Math.max(0, Math.floor((width - visibleWidth(text)) / 2));
-            const line = " ".repeat(pad) + text;
-            return [
-              `\x1b[43m\x1b[30m${truncateToWidth(line + " ".repeat(Math.max(0, width - visibleWidth(line))), width)}\x1b[0m`,
-            ];
-          },
-          invalidate() {},
-        }));
-      }, 500);
+      // Static spacer widget above the banner
+      ctx.ui.setWidget("devmode-spacer", (_tui: any, _theme: any) => ({
+        render(_width: number): string[] {
+          return [""];
+        },
+        invalidate() {},
+      }));
 
-      // Initial render
-      ctx.ui.setWidget("devmode-banner", (_tui: any, theme: any) => ({
+      // Static banner widget
+      ctx.ui.setWidget("devmode-banner", (_tui: any, _theme: any) => ({
         render(width: number): string[] {
-          const text = "🚨🔧🚨🔧🚨 DEVMODE ACTIVE 🚨🔧🚨🔧🚨";
+          const text = "🔴🔧🔴🔧🔴 DEVMODE ACTIVE 🔴🔧🔴🔧🔴";
           const pad = Math.max(0, Math.floor((width - visibleWidth(text)) / 2));
           const line = " ".repeat(pad) + text;
           return [
