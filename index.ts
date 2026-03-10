@@ -274,7 +274,8 @@ export default function (pi: ExtensionAPI) {
         const icon = enabled ? "✓" : "·";
         const update = pkg.updateAvailable ? " ⬆" : "";
         lines.push(`  [${icon}] ${pkg.name}${update} — ${getPackageDescription(pkg.name)}`);
-        const srcPath = pkg.sourceType === "local" ? (pkg.onboardedFrom || pkg.source) : pkg.source;
+        const rawSrc = pkg.sourceType === "local" ? (pkg.onboardedFrom || pkg.source) : pkg.source;
+        const srcPath = (rawSrc && rawSrc !== "local" && rawSrc !== "onboarded") ? rawSrc : undefined;
         if (srcPath) lines.push(`       ${srcPath}`);
       }
 
