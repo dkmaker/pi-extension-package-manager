@@ -28,7 +28,7 @@ import {
   repoHash,
 } from "./store.js";
 import { validatePackage } from "./onboard.js";
-import { gitInitPool, gitSyncPool, gitPushPool, checkPoolUpdate, gitPullPool, isGitEnabled, getGitRemote, ensureGitignore } from "./git-pool.js";
+import { gitInitPool, gitSyncPool, gitPushPool, checkPoolUpdate, checkPoolUpdateAsync, gitPullPool, isGitEnabled, getGitRemote, ensureGitignore } from "./git-pool.js";
 import { checkAllUpdates, forceCheckAllUpdates, getPendingUpdates, applyUpdate, applyAllUpdates } from "./updates.js";
 
 // ============================================================================
@@ -72,6 +72,9 @@ export default function (pi: ExtensionAPI) {
       ]);
       setTimeout(() => ctx.ui.setWidget("pkg-active", undefined), 5000);
     }
+
+    // Async pool check — non-blocking, once per hour
+    checkPoolUpdateAsync((msg) => ctx.ui.notify(`📦 ${msg}`, "info"));
 
     // Background update check (non-blocking)
     setTimeout(() => {

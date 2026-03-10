@@ -79,6 +79,7 @@ export interface PackageEntry {
 export interface Registry {
   /** Optional git remote for the pool itself */
   gitRemote?: string;
+  poolLastUpdateCheck?: string;
   /** All managed packages */
   packages: Record<string, PackageEntry>;
 }

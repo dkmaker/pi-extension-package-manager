@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { execSync } from "child_process";
+import { execSync, exec } from "child_process";
 import { join } from "path";
-import { PKG_MGR_ROOT, PACKAGES_DIR, REPOS_DIR } from "./constants.js";
+import { PKG_MGR_ROOT, PACKAGES_DIR, REPOS_DIR, UPDATE_CHECK_INTERVAL_MS } from "./constants.js";
 import { loadRegistry, saveRegistry } from "./registry.js";
 
 // ============================================================================
@@ -171,7 +171,7 @@ export function gitPushPool(): { success: boolean; message: string } {
 // ============================================================================
 
 /**
- * Check if the pool git remote has newer commits.
+ * Check if the pool git remote has newer commits (sync, used in /packages-update).
  */
 export function checkPoolUpdate(): boolean {
   if (!isGitEnabled()) return false;
@@ -183,6 +183,36 @@ export function checkPoolUpdate(): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Async pool update check with hourly interval — safe to call at session start.
+ * Fetches in background, pulls if behind, calls onUpdate if pool was updated.
+ */
+export function checkPoolUpdateAsync(onUpdate: (msg: string) => void): void {
+  if (!isGitEnabled()) return;
+
+  const reg = loadRegistry();
+  const now = Date.now();
+  const last = reg.poolLastUpdateCheck ? new Date(reg.poolLastUpdateCheck).getTime() : 0;
+  if (now - last < UPDATE_CHECK_INTERVAL_MS) return;
+
+  // Update timestamp immediately so concurrent sessions don't double-check
+  reg.poolLastUpdateCheck = new Date().toISOString();
+  saveRegistry(reg);
+
+  exec("git fetch --depth=1", { cwd: PKG_MGR_ROOT }, (err) => {
+    if (err) return;
+    try {
+      const local = execSync("git rev-parse HEAD", { cwd: PKG_MGR_ROOT, encoding: "utf-8" }).trim();
+      const remote = execSync("git rev-parse FETCH_HEAD", { cwd: PKG_MGR_ROOT, encoding: "utf-8" }).trim();
+      if (local !== remote) {
+        execSync("git reset --hard FETCH_HEAD", { cwd: PKG_MGR_ROOT, stdio: "pipe" });
+        const commit = execSync("git rev-parse --short HEAD", { cwd: PKG_MGR_ROOT, encoding: "utf-8" }).trim();
+        onUpdate(`Pool updated to ${commit}. Run /reload to apply changes.`);
+      }
+    } catch {}
+  });
 }
 
 /**
