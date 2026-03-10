@@ -454,43 +454,38 @@ export default function (pi: ExtensionAPI) {
 
   // ── /packages-push — push local git packages to remote ─────────────────
   pi.registerCommand("packages-push", {
-    description: "Push a local git-tracked package to its remote: /packages-push <name>",
+    description: "Push local git-tracked package(s) to remote: /packages-push [name] (omit name to push all)",
     handler: async (args, ctx) => {
       const name = args.trim();
-      if (!name) {
-        ctx.ui.notify("Usage: /packages-push <name>", "warning");
-        return;
-      }
 
-      const pkg = listPackages().find(p => p.name === name);
-      if (!pkg) {
-        ctx.ui.notify(`Package "${name}" not found in pool.`, "error");
-        return;
-      }
-      if (pkg.sourceType !== "local") {
-        ctx.ui.notify(`"${name}" is not a local package. Only local packages support push.`, "warning");
-        return;
-      }
-      const sourcePath = pkg.source;
-      if (!sourcePath || sourcePath === "local") {
-        ctx.ui.notify(`"${name}" has no stored source path. Re-add the package to enable push support.`, "warning");
-        return;
-      }
-      if (!existsSync(sourcePath)) {
-        ctx.ui.notify(`Source path no longer exists: ${sourcePath}`, "error");
-        return;
-      }
-      if (!isGitRepo(sourcePath) || !gitHasRemote(sourcePath)) {
-        ctx.ui.notify(`"${name}" source is not a git repo with a remote: ${sourcePath}`, "warning");
-        return;
-      }
+      const pushOne = (pkg: PackageEntry): string => {
+        if (pkg.sourceType !== "local") return `"${pkg.name}" is not a local package — skipped`;
+        const sourcePath = pkg.source;
+        if (!sourcePath || sourcePath === "local") return `"${pkg.name}" has no stored source path — skipped`;
+        if (!existsSync(sourcePath)) return `"${pkg.name}" source path no longer exists: ${sourcePath}`;
+        if (!isGitRepo(sourcePath) || !gitHasRemote(sourcePath)) return `"${pkg.name}" source is not a git repo with a remote — skipped`;
+        try {
+          gitPush(sourcePath);
+          return `✅ ${pkg.name}`;
+        } catch (e: any) {
+          return `❌ ${pkg.name}: ${e.message}`;
+        }
+      };
 
-      try {
-        ctx.ui.notify(`📦 Pushing ${name} (${sourcePath})...`, "info");
-        gitPush(sourcePath);
-        ctx.ui.notify(`✅ Pushed "${name}" to remote.`, "info");
-      } catch (e: any) {
-        ctx.ui.notify(`❌ Push failed for "${name}": ${e.message}`, "error");
+      if (name) {
+        const pkg = listPackages().find(p => p.name === name);
+        if (!pkg) { ctx.ui.notify(`Package "${name}" not found in pool.`, "error"); return; }
+        ctx.ui.notify(`📦 Pushing ${name}...`, "info");
+        ctx.ui.notify(pushOne(pkg), "info");
+      } else {
+        const localGitPkgs = listPackages().filter(p => p.sourceType === "local" && p.source && p.source !== "local");
+        if (localGitPkgs.length === 0) {
+          ctx.ui.notify("No local packages with a source path found.", "warning");
+          return;
+        }
+        ctx.ui.notify(`📦 Pushing ${localGitPkgs.length} local package(s)...`, "info");
+        const results = localGitPkgs.map(pushOne);
+        ctx.ui.notify(results.join("\n"), "info");
       }
     },
   });
