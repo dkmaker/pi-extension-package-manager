@@ -1,4 +1,4 @@
-import { join } from "path";
+import { join, basename } from "path";
 import { homedir } from "os";
 
 // ============================================================================
@@ -20,8 +20,12 @@ function resolveConfigRoot(): string {
     const expanded = envDir === "~" ? homedir()
       : envDir.startsWith("~/") ? join(homedir(), envDir.slice(2))
       : envDir;
-    // Agent dir might be e.g. /custom/path/agent — go up one level
-    return join(expanded, "..");
+    // If the dir is named "agent" (real pi convention: ~/.pi/agent/), go up one
+    // level to get the config root (e.g. ~/.pi/). Otherwise (e.g. dev mode
+    // where PI_CODING_AGENT_DIR=.pi-home), use the dir itself as the root.
+    return basename(expanded) === "agent"
+      ? join(expanded, "..")
+      : expanded;
   }
   return join(homedir(), ".pi");
 }

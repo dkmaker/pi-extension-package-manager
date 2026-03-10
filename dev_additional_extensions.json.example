@@ -1,6 +1,9 @@
 {
   "extensions": [
-    "~/.pi/packagemanager/packages/pi-extension-project-management/index.ts"
+    "~/.pi/packagemanager/packages/file-rules/extensions/file-rules.ts",
+    "~/.pi/packagemanager/packages/pi-docs",
+    "~/.pi/packagemanager/packages/pi-docs/widget-lib/index.ts",
+    "~/.pi/packagemanager/packages/pi-extension-project-management"
   ],
   "skills": [],
   "prompts": []

@@ -1,0 +1,26 @@
+{
+  "version": 7,
+  "epics": [],
+  "issues": [],
+  "categories": [
+    {
+      "slug": "general",
+      "description": "General purpose assets"
+    }
+  ],
+  "assets": [
+    {
+      "id": "8cec971f",
+      "categorySlug": "general",
+      "title": "Test Asset",
+      "context": "Use this as a test to verify the asset system is working correctly.",
+      "body": "This is a test asset to confirm the project manager asset functionality works as expected.",
+      "project": false,
+      "sources": [],
+      "linkedEpicIds": [],
+      "linkedIssueIds": [],
+      "createdAt": "2026-03-10T12:29:29.905Z",
+      "updatedAt": "2026-03-10T12:29:29.905Z"
+    }
+  ]
+}

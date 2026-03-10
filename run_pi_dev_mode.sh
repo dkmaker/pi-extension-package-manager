@@ -17,6 +17,13 @@ REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 export PI_CODING_AGENT_DIR="$REPO_ROOT/.pi-home"
 mkdir -p "$PI_CODING_AGENT_DIR"
 
+# Purge the repo's .pi/settings.json on every dev start so pi regenerates it
+# without stale package manager entries from outside devmode.
+if [ -f "$REPO_ROOT/.pi/settings.json" ]; then
+  mv "$REPO_ROOT/.pi/settings.json" "$REPO_ROOT/.pi/settings.json.bak"
+  echo "🗑  Backed up .pi/settings.json → settings.json.bak (pi will regenerate)"
+fi
+
 # Copy auth and settings on first create (so dev profile can diverge)
 if [ -f "$HOME/.pi/agent/auth.json" ] && [ ! -f "$PI_CODING_AGENT_DIR/auth.json" ]; then
   cp "$HOME/.pi/agent/auth.json" "$PI_CODING_AGENT_DIR/auth.json"
