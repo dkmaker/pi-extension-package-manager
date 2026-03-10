@@ -190,20 +190,14 @@ export function gitClone(url: string, targetDir: string, ref?: string): string {
 
 export function gitFetchCheck(dir: string): boolean {
   try {
-    execSync("git fetch --dry-run 2>&1", { cwd: dir, encoding: "utf-8", stdio: "pipe" });
-    // Check if there are differences
+    // Use actual fetch (not dry-run) so FETCH_HEAD is updated.
+    // --depth=1 works correctly with shallow clones which have no tracking branch.
+    execSync("git fetch --depth=1", { cwd: dir, stdio: "pipe" });
     const local = execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf-8" }).trim();
-    const remote = execSync("git rev-parse @{u}", { cwd: dir, encoding: "utf-8", stdio: "pipe" }).trim();
+    const remote = execSync("git rev-parse FETCH_HEAD", { cwd: dir, encoding: "utf-8" }).trim();
     return local !== remote;
   } catch {
-    // If fetch fails or no upstream, try another approach
-    try {
-      execSync("git remote update", { cwd: dir, stdio: "pipe" });
-      const status = execSync("git status -uno", { cwd: dir, encoding: "utf-8" });
-      return status.includes("behind");
-    } catch {
-      return false;
-    }
+    return false;
   }
 }
 
