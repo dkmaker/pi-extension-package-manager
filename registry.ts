@@ -212,8 +212,59 @@ export function gitPull(dir: string): string {
   return execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf-8" }).trim();
 }
 
+export function gitPush(dir: string): void {
+  execSync("git push", { cwd: dir, stdio: "pipe" });
+}
+
 export function gitGetCommit(dir: string): string {
   return execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf-8" }).trim();
+}
+
+/**
+ * Returns how many commits local is ahead/behind the remote tracking branch.
+ */
+export function gitAheadBehind(dir: string): { ahead: number; behind: number } {
+  try {
+    execSync("git fetch", { cwd: dir, stdio: "pipe" });
+    const result = execSync("git rev-list --left-right --count HEAD...@{u}", {
+      cwd: dir, encoding: "utf-8", stdio: "pipe",
+    }).trim();
+    const [ahead, behind] = result.split("\t").map(Number);
+    return { ahead: ahead || 0, behind: behind || 0 };
+  } catch {
+    return { ahead: 0, behind: 0 };
+  }
+}
+
+export function isGitRepo(dir: string): boolean {
+  try {
+    execSync("git rev-parse --git-dir", { cwd: dir, stdio: "pipe" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function gitHasRemote(dir: string): boolean {
+  try {
+    const remotes = execSync("git remote", { cwd: dir, encoding: "utf-8", stdio: "pipe" }).trim();
+    return remotes.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Re-copy a local source directory into the pool dir (excluding node_modules).
+ */
+export function recopyLocal(sourcePath: string, poolDir: string): void {
+  const { cpSync, rmSync, mkdirSync } = require("fs");
+  rmSync(poolDir, { recursive: true, force: true });
+  mkdirSync(poolDir, { recursive: true });
+  cpSync(sourcePath, poolDir, {
+    recursive: true,
+    filter: (src: string) => !src.includes("node_modules"),
+  });
 }
 
 // ============================================================================

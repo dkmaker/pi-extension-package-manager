@@ -70,8 +70,10 @@ export interface PackageEntry {
   installedAt: string;
   /** ISO timestamp of last update check */
   lastUpdateCheck?: string;
-  /** Whether an update is available */
+  /** Whether an update is available (remote ahead of local) */
   updateAvailable?: boolean;
+  /** Whether local is ahead of remote (needs push) — local git packages only */
+  pushAvailable?: boolean;
 }
 
 export interface Registry {
@@ -96,5 +98,5 @@ export interface PackageResources {
   themes: string[];
 }
 
-/** 24 hours in milliseconds */
-export const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+/** 1 hour in milliseconds */
+export const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;

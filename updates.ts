@@ -16,16 +16,27 @@ import {
   npmInstallPackage,
   installDependenciesIfNeeded,
   parseSource,
+  isGitRepo,
+  gitHasRemote,
+  recopyLocal,
 } from "./registry.js";
 
 // ============================================================================
 // Check for updates (non-blocking, called on session start)
 // ============================================================================
 
+/** Returns true if a local package has a git repo with a remote at its source path. */
+export function isLocalGitPackage(pkg: PackageEntry): boolean {
+  if (pkg.sourceType !== "local") return false;
+  const sourcePath = pkg.source;
+  if (!sourcePath || sourcePath === "local") return false;
+  return existsSync(sourcePath) && isGitRepo(sourcePath) && gitHasRemote(sourcePath);
+}
+
 export function getPackagesNeedingCheck(): PackageEntry[] {
   const now = Date.now();
   return listPackages().filter(pkg => {
-    if (pkg.sourceType === "local") return false;
+    if (pkg.sourceType === "local" && !isLocalGitPackage(pkg)) return false;
     if (!pkg.lastUpdateCheck) return true;
     return now - new Date(pkg.lastUpdateCheck).getTime() > UPDATE_CHECK_INTERVAL_MS;
   });
@@ -53,6 +64,8 @@ export function checkPackageUpdate(pkg: PackageEntry): boolean {
         const parsed = parseSource(entry.source);
         updateAvailable = npmCheckUpdate(parsed.value, entry.version);
       }
+    } else if (entry.sourceType === "local" && isLocalGitPackage(entry)) {
+      updateAvailable = gitFetchCheck(entry.source);
     }
   } catch {
     // Silently fail — don't break session start
@@ -152,7 +165,34 @@ export function applyUpdate(name: string): UpdateResult {
       };
     }
 
-    return { name, success: false, message: "Local packages cannot be updated" };
+    if (entry.sourceType === "local" && isLocalGitPackage(entry)) {
+      const sourcePath = entry.source;
+      const oldCommit = gitGetCommit(sourcePath);
+      const newCommit = gitPull(sourcePath);
+
+      if (oldCommit !== newCommit) {
+        // Re-copy updated source into pool
+        recopyLocal(sourcePath, dir);
+        installDependenciesIfNeeded(dir);
+      }
+
+      entry.commit = newCommit;
+      entry.updateAvailable = false;
+      entry.lastUpdateCheck = new Date().toISOString();
+      saveRegistry(reg);
+
+      return {
+        name,
+        success: true,
+        message: oldCommit !== newCommit
+          ? `Pulled & recopied ${oldCommit.slice(0, 7)} → ${newCommit.slice(0, 7)}`
+          : "Already up to date",
+        oldVersion: oldCommit.slice(0, 7),
+        newVersion: newCommit.slice(0, 7),
+      };
+    }
+
+    return { name, success: false, message: "Local packages without a git remote cannot be updated" };
   } catch (e: any) {
     return { name, success: false, message: e.message || "Unknown error" };
   }

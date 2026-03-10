@@ -12,8 +12,11 @@ import {
   packageDir,
   parseSource,
   gitClone,
+  gitPush,
   npmInstallPackage,
   installDependenciesIfNeeded,
+  isGitRepo,
+  gitHasRemote,
 } from "./registry.js";
 import {
   loadRepoManifest,
@@ -38,6 +41,12 @@ function userPackages() {
   return listPackages().filter(p => p.name !== SELF_PACKAGE && !p.source?.includes("pi-extension-package-manager"));
 }
 
+function pkgStatus(enabledCount: number, total: number): string {
+  const pending = getPendingUpdates();
+  const badge = pending.length > 0 ? ` ⬆${pending.length}` : "";
+  return `📦 ${enabledCount}/${total}${badge}`;
+}
+
 export default function (pi: ExtensionAPI) {
   // Ensure base directories exist
   mkdirSync(PACKAGES_DIR, { recursive: true });
@@ -54,7 +63,7 @@ export default function (pi: ExtensionAPI) {
     const manifest = loadRepoManifest(cwd);
     const enabledCount = manifest.enabled.length;
 
-    ctx.ui.setStatus("pkg-count", `📦 ${enabledCount}/${allPkgs.length}`);
+    ctx.ui.setStatus("pkg-count", pkgStatus(enabledCount, allPkgs.length));
 
     // Show enabled packages briefly
     if (enabledCount > 0) {
@@ -74,7 +83,7 @@ export default function (pi: ExtensionAPI) {
             `📦 ${pending.length} package update${pending.length > 1 ? "s" : ""} available: ${pending.map(p => p.name).join(", ")}\nRun /packages-update to apply.`,
             "info"
           );
-          ctx.ui.setStatus("pkg-count", `📦 ${enabledCount}/${allPkgs.length} ⬆${pending.length}`);
+          ctx.ui.setStatus("pkg-count", pkgStatus(enabledCount, allPkgs.length));
         }
       } catch {}
     }, 2000);
@@ -222,7 +231,7 @@ export default function (pi: ExtensionAPI) {
       if (result?.changed) {
         const added = ensurePackageInSettings(cwd);
         const updatedManifest = loadRepoManifest(cwd);
-        ctx.ui.setStatus("pkg-count", `📦 ${updatedManifest.enabled.length}/${allPkgs.length}`);
+        ctx.ui.setStatus("pkg-count", pkgStatus(updatedManifest.enabled.length, allPkgs.length));
         ctx.ui.notify(
           `Package state updated.${added ? " Added to .pi/settings.json." : ""}\nRun /reload to apply changes.`,
           "info"
@@ -333,16 +342,19 @@ export default function (pi: ExtensionAPI) {
             updateAvailable: false,
           });
         } else {
-          // Local: copy into pool
+          // Local: copy into pool, store abs path for future git-pull support
           const { cpSync } = require("fs");
           const absPath = resolve(process.cwd(), parsed.value);
-          cpSync(absPath, dir, { recursive: true });
+          cpSync(absPath, dir, {
+            recursive: true,
+            filter: (src: string) => !src.includes("node_modules"),
+          });
           installDependenciesIfNeeded(dir);
 
           addPackage({
             name: parsed.name,
             sourceType: "local",
-            source: "local",
+            source: absPath,
             installedAt: new Date().toISOString(),
           });
         }
@@ -434,9 +446,50 @@ export default function (pi: ExtensionAPI) {
       // Update status
       const allPkgs = userPackages();
       const manifest = loadRepoManifest(process.cwd());
-      const pendingNow = getPendingUpdates();
-      const badge = pendingNow.length > 0 ? ` ⬆${pendingNow.length}` : "";
-      ctx.ui.setStatus("pkg-count", `📦 ${manifest.enabled.length}/${allPkgs.length}${badge}`);
+      ctx.ui.setStatus("pkg-count", pkgStatus(manifest.enabled.length, allPkgs.length));
+    },
+  });
+
+  // ── /packages-push — push local git packages to remote ─────────────────
+  pi.registerCommand("packages-push", {
+    description: "Push a local git-tracked package to its remote: /packages-push <name>",
+    handler: async (args, ctx) => {
+      const name = args.trim();
+      if (!name) {
+        ctx.ui.notify("Usage: /packages-push <name>", "warning");
+        return;
+      }
+
+      const pkg = listPackages().find(p => p.name === name);
+      if (!pkg) {
+        ctx.ui.notify(`Package "${name}" not found in pool.`, "error");
+        return;
+      }
+      if (pkg.sourceType !== "local") {
+        ctx.ui.notify(`"${name}" is not a local package. Only local packages support push.`, "warning");
+        return;
+      }
+      const sourcePath = pkg.source;
+      if (!sourcePath || sourcePath === "local") {
+        ctx.ui.notify(`"${name}" has no stored source path. Re-add the package to enable push support.`, "warning");
+        return;
+      }
+      if (!existsSync(sourcePath)) {
+        ctx.ui.notify(`Source path no longer exists: ${sourcePath}`, "error");
+        return;
+      }
+      if (!isGitRepo(sourcePath) || !gitHasRemote(sourcePath)) {
+        ctx.ui.notify(`"${name}" source is not a git repo with a remote: ${sourcePath}`, "warning");
+        return;
+      }
+
+      try {
+        ctx.ui.notify(`📦 Pushing ${name} (${sourcePath})...`, "info");
+        gitPush(sourcePath);
+        ctx.ui.notify(`✅ Pushed "${name}" to remote.`, "info");
+      } catch (e: any) {
+        ctx.ui.notify(`❌ Push failed for "${name}": ${e.message}`, "error");
+      }
     },
   });
 
@@ -543,7 +596,7 @@ export default function (pi: ExtensionAPI) {
 
         const allPkgs = userPackages();
         const manifest = loadRepoManifest(cwd);
-        ctx.ui.setStatus("pkg-count", `📦 ${manifest.enabled.length}/${allPkgs.length}`);
+        ctx.ui.setStatus("pkg-count", pkgStatus(manifest.enabled.length, allPkgs.length));
 
         const msg = `✅ Registered "${name}" and enabled for this repo.` +
           (depsInstalled ? ` Dependencies installed.` : ``) +
