@@ -2,37 +2,55 @@
 
 ## Prerequisites
 
-- [pi coding agent](https://github.com/nicobrinkkemper/pi-coding-agent) installed
+- [pi coding agent](https://github.com/mariozechner/pi-coding-agent) installed
 
 ## Local Development Mode
 
-By default, pi loads extensions from git packages. For local development, run the setup script to symlink the repo's source files directly into pi's extension directory:
+Run the dev script to start pi with an isolated home directory and the local extension loaded:
 
 ```bash
-bash scripts/enable_dev_mode.sh
+./run_pi_dev_mode.sh
 ```
 
-This will:
+Pass extra pi flags directly, e.g.:
 
-1. Create `.pi/extensions/package-manager/` with symlinks to all `.ts` files in the repo root
-2. Remove any git package reference from `.pi/settings.json`
-3. Clean up the `.pi/git/` folder if present
+```bash
+./run_pi_dev_mode.sh -c   # continue last session
+```
 
-After running the script, restart pi and it will load your local source files. Any edits to the `.ts` files are picked up on the next pi restart.
+The script will:
+
+1. Create `.pi-home/` as an isolated `PI_CODING_AGENT_DIR` (auth and settings copied from `~/.pi/agent/` on first run)
+2. Load the local extension from the repo root (has `package.json`)
+3. Load `.pi/extensions/devmode.ts` which shows a DEVMODE banner
+4. Load any extra extensions/skills/prompts from `dev_additional_extensions.json`
+
+## Additional Extensions
+
+Copy the example config and add any extra extensions you want in dev mode:
+
+```bash
+cp dev_additional_extensions.json.example dev_additional_extensions.json
+```
+
+`dev_additional_extensions.json` is gitignored so it won't be committed.
 
 ## Project Structure
 
 ```
-constants.ts          # Shared constants (paths, intervals)
-git-pool.ts           # Git tracking for the package pool
-index.ts              # Extension entry point, commands, status bar
-onboard.ts            # Onboard existing extensions into the pool
-registry.ts           # Package registry management (add/remove/restore)
-store.ts              # Per-repo manifest and package generation
-updates.ts            # Background update checking and applying
-scripts/              # Development scripts
-  enable_dev_mode.sh  # Set up local dev symlinks
+index.ts                        # Extension entry point, commands, status bar
+constants.ts                    # Shared constants (paths, intervals)
+git-pool.ts                     # Git tracking for the package pool
+onboard.ts                      # Onboard existing extensions into the pool
+registry.ts                     # Package registry management (add/remove/restore)
+store.ts                        # Per-repo manifest and package generation
+updates.ts                      # Background update checking and applying
+run_pi_dev_mode.sh              # Start pi in dev mode
+dev_additional_extensions.json  # (gitignored) Extra extensions for dev mode
+dev_additional_extensions.json.example
 .pi/
-  settings.json       # Pi settings (no git package in dev mode)
-  extensions/         # Symlinked extensions (gitignored)
+  extensions/
+    devmode.ts                  # Devmode banner extension
+scripts/
+  enable_dev_mode.sh            # Legacy setup script (no longer needed)
 ```
