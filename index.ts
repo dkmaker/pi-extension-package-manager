@@ -27,6 +27,7 @@ import {
   ensurePackageInSettings,
   getPackageDescription,
   getActivePackages,
+  resolvePackageResources,
   repoHash,
 } from "./store.js";
 import { validatePackage } from "./onboard.js";
@@ -47,6 +48,28 @@ function pkgStatus(enabledCount: number, total: number): string {
   const pending = getPendingUpdates();
   const badge = pending.length > 0 ? ` ⬆${pending.length}` : "";
   return `📦 ${enabledCount}/${total}${badge}`;
+}
+
+/** Resolve resource types for a package and return a colored [ESPT] badge */
+function getResourceBadge(pkgName: string, theme: any): string {
+  const res = resolvePackageResources(pkgName);
+  let badge = "";
+  if (res.extensions.length) badge += theme.fg("accent", "E");
+  if (res.skills.length) badge += theme.fg("success", "S");
+  if (res.prompts.length) badge += theme.fg("warning" as any, "P");
+  if (res.themes.length) badge += theme.fg("muted", "T");
+  return badge ? `[${badge}]` : theme.fg("dim", "[-]");
+}
+
+/** Plain text version for non-TUI output */
+function getResourceBadgePlain(pkgName: string): string {
+  const res = resolvePackageResources(pkgName);
+  let badge = "";
+  if (res.extensions.length) badge += "E";
+  if (res.skills.length) badge += "S";
+  if (res.prompts.length) badge += "P";
+  if (res.themes.length) badge += "T";
+  return badge ? `[${badge}]` : "[-]";
 }
 
 export default function (pi: ExtensionAPI) {
@@ -194,18 +217,22 @@ export default function (pi: ExtensionAPI) {
               const pointer = isCur ? theme.fg("accent", "▸ ") : "  ";
               const nameColor = isCur ? "accent" : enabled ? "text" : "dim";
               const nameStr = theme.fg(nameColor as any, pkg.name);
-              const badge = isMandatory ? theme.fg("accent", " ★") : "";
+              const mandatoryBadge = isMandatory ? theme.fg("accent", "★") : " ";
+              const resBadge = getResourceBadge(pkg.name, theme);
               const desc = theme.fg("dim", ` — ${getPackageDescription(pkg.name)}`);
               const updateBadge = pkg.updateAvailable ? theme.fg("warning" as any, " ⬆") : "";
+              // Pad name to align badges — use raw name length for padding
+              const padded = pkg.name + " ".repeat(Math.max(1, 22 - pkg.name.length));
+              const paddedStr = theme.fg(nameColor as any, padded);
 
               rows.push({
-                line: truncateToWidth(`${pointer}[${icon}]${badge} ${nameStr}${desc}${updateBadge}`, width),
+                line: truncateToWidth(`${pointer}[${icon}]${mandatoryBadge}${paddedStr}${resBadge} ${desc}${updateBadge}`, width),
                 idx: i,
               });
             }
 
             // Scrolling
-            const listHeight = visibleRows - 6;
+            const listHeight = visibleRows - 7;
             let cursorRow = 0;
             for (let r = 0; r < rows.length; r++) {
               if (rows[r].idx === cursor) { cursorRow = r; break; }
@@ -216,7 +243,7 @@ export default function (pi: ExtensionAPI) {
 
             const slice = rows.slice(scrollOffset, scrollOffset + listHeight);
             for (const row of slice) lines.push(row.line);
-            while (lines.length < visibleRows - 3) lines.push("");
+            while (lines.length < visibleRows - 4) lines.push("");
 
             // Footer
             const canUp = scrollOffset > 0;
@@ -225,6 +252,7 @@ export default function (pi: ExtensionAPI) {
 
             add(theme.fg("accent", "─".repeat(width)));
             add(theme.fg("dim", ` ↑↓/jk move · Space toggle · q close  ${scrollHint}`));
+            add(` ${theme.fg("accent", "E")}=extension ${theme.fg("success", "S")}=skill ${theme.fg("warning" as any, "P")}=prompt ${theme.fg("muted", "T")}=theme  ${theme.fg("accent", "★")}=auto-enabled`);
             add(theme.fg("accent", "─".repeat(width)));
 
             cache = lines;
@@ -286,7 +314,7 @@ export default function (pi: ExtensionAPI) {
           const enabled = activeSet.has(pkg.name);
           const icon = enabled ? "✓" : "·";
           const update = pkg.updateAvailable ? " ⬆" : "";
-          lines.push(`  [${icon}] ★ ${pkg.name}${update} — ${getPackageDescription(pkg.name)}`);
+          lines.push(`  [${icon}] ★ ${pkg.name} ${getResourceBadgePlain(pkg.name)}${update} — ${getPackageDescription(pkg.name)}`);
         }
       }
 
@@ -300,12 +328,12 @@ export default function (pi: ExtensionAPI) {
         const enabled = activeSet.has(pkg.name);
         const icon = enabled ? "✓" : "·";
         const update = pkg.updateAvailable ? " ⬆" : "";
-        lines.push(`  [${icon}] ${pkg.name}${update} — ${getPackageDescription(pkg.name)}`);
+        lines.push(`  [${icon}] ${pkg.name} ${getResourceBadgePlain(pkg.name)}${update} — ${getPackageDescription(pkg.name)}`);
         const srcPath = pkg.sourceType === "local" ? packageDir(pkg.name) : pkg.source;
         if (srcPath) lines.push(`       ${srcPath}`);
       }
 
-      lines.push(`\n✓=enabled  ·=disabled  ★=auto-enabled  ⬆=update available`);
+      lines.push(`\n✓=enabled  ·=disabled  ★=auto-enabled  ⬆=update available\nE=extension S=skill P=prompt T=theme`);
       if (isGitEnabled()) {
         lines.push(`Git pool: ${getGitRemote() || "enabled"}`);
       }
