@@ -112,6 +112,10 @@ export default function (pi: ExtensionAPI) {
       const manifest = loadRepoManifest(cwd);
       const mandatory = getMandatoryPackages();
       const mandatorySet = new Set(mandatory);
+      // Display order: normal packages by source type, then mandatory at bottom
+      const normalPkgs = allPkgs.filter(p => !mandatorySet.has(p.name));
+      const mandatoryPkgs = allPkgs.filter(p => mandatorySet.has(p.name));
+      const displayPkgs = [...normalPkgs, ...mandatoryPkgs];
       const termRows = process.stdout.rows || 40;
       const visibleRows = Math.max(12, Math.floor(termRows * 0.6));
 
@@ -138,12 +142,12 @@ export default function (pi: ExtensionAPI) {
               return;
             }
             if (matchesKey(data, Key.down) || data === "j") {
-              cursor = Math.min(allPkgs.length - 1, cursor + 1);
+              cursor = Math.min(displayPkgs.length - 1, cursor + 1);
               refresh();
               return;
             }
             if (matchesKey(data, "space")) {
-              const pkg = allPkgs[cursor];
+              const pkg = displayPkgs[cursor];
               const nowEnabled = togglePackage(cwd, pkg.name);
               if (nowEnabled) activeSet.add(pkg.name);
               else activeSet.delete(pkg.name);
@@ -160,41 +164,24 @@ export default function (pi: ExtensionAPI) {
 
             // Header
             add(theme.fg("accent", "─".repeat(width)));
-            add(` 📦 Package Manager    ${theme.fg("dim", `${activeSet.size} enabled · ${allPkgs.length} total`)}`);
+            add(` 📦 Package Manager    ${theme.fg("dim", `${activeSet.size} enabled · ${displayPkgs.length} total`)}`);
             add(theme.fg("accent", "─".repeat(width)));
 
-            // Package rows — mandatory first, then by source type
+            // Package rows — normal by source type, then mandatory at bottom
             const rows: { line: string; idx: number }[] = [];
-            const mandatoryPkgs = allPkgs.filter(p => mandatorySet.has(p.name));
-            const normalPkgs = allPkgs.filter(p => !mandatorySet.has(p.name));
-
-            if (mandatoryPkgs.length > 0) {
-              rows.push({ line: "", idx: -1 });
-              rows.push({ line: theme.fg("dim", ` ── Auto-Enabled ──`), idx: -1 });
-              for (const pkg of mandatoryPkgs) {
-                const i = allPkgs.indexOf(pkg);
-                const isCur = i === cursor;
-                const enabled = activeSet.has(pkg.name);
-                const icon = enabled ? theme.fg("accent", "✓") : theme.fg("dim", "·");
-                const pointer = isCur ? theme.fg("accent", "▸ ") : "  ";
-                const nameColor = isCur ? "accent" : enabled ? "text" : "dim";
-                const nameStr = theme.fg(nameColor as any, pkg.name);
-                const badge = theme.fg("accent", " ★");
-                const desc = theme.fg("dim", ` — ${getPackageDescription(pkg.name)}`);
-                const updateBadge = pkg.updateAvailable ? theme.fg("warning" as any, " ⬆") : "";
-                rows.push({
-                  line: truncateToWidth(`${pointer}[${icon}]${badge} ${nameStr}${desc}${updateBadge}`, width),
-                  idx: i,
-                });
-              }
-            }
-
             let lastSource = "";
-            for (const pkg of normalPkgs) {
-              const i = allPkgs.indexOf(pkg);
 
-              // Group header by source type
-              if (pkg.sourceType !== lastSource) {
+            for (let i = 0; i < displayPkgs.length; i++) {
+              const pkg = displayPkgs[i];
+              const isMandatory = mandatorySet.has(pkg.name);
+
+              // Group headers
+              if (isMandatory && (i === 0 || !mandatorySet.has(displayPkgs[i - 1].name))) {
+                // First mandatory item — add section header
+                rows.push({ line: "", idx: -1 });
+                rows.push({ line: theme.fg("dim", ` ── Auto-Enabled ──`), idx: -1 });
+                lastSource = ""; // reset so we don't carry over
+              } else if (!isMandatory && pkg.sourceType !== lastSource) {
                 lastSource = pkg.sourceType;
                 const label = pkg.sourceType === "git" ? "Git Packages" : pkg.sourceType === "npm" ? "npm Packages" : "Local Packages";
                 rows.push({ line: "", idx: -1 });
@@ -207,11 +194,12 @@ export default function (pi: ExtensionAPI) {
               const pointer = isCur ? theme.fg("accent", "▸ ") : "  ";
               const nameColor = isCur ? "accent" : enabled ? "text" : "dim";
               const nameStr = theme.fg(nameColor as any, pkg.name);
+              const badge = isMandatory ? theme.fg("accent", " ★") : "";
               const desc = theme.fg("dim", ` — ${getPackageDescription(pkg.name)}`);
               const updateBadge = pkg.updateAvailable ? theme.fg("warning" as any, " ⬆") : "";
 
               rows.push({
-                line: truncateToWidth(`${pointer}[${icon}] ${nameStr}${desc}${updateBadge}`, width),
+                line: truncateToWidth(`${pointer}[${icon}]${badge} ${nameStr}${desc}${updateBadge}`, width),
                 idx: i,
               });
             }
@@ -233,7 +221,7 @@ export default function (pi: ExtensionAPI) {
             // Footer
             const canUp = scrollOffset > 0;
             const canDown = scrollOffset + listHeight < rows.length;
-            const scrollHint = `${canUp ? "▲" : " "} ${cursor + 1}/${allPkgs.length} ${canDown ? "▼" : " "}`;
+            const scrollHint = `${canUp ? "▲" : " "} ${cursor + 1}/${displayPkgs.length} ${canDown ? "▼" : " "}`;
 
             add(theme.fg("accent", "─".repeat(width)));
             add(theme.fg("dim", ` ↑↓/jk move · Space toggle · q close  ${scrollHint}`));
