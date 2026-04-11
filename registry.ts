@@ -47,6 +47,11 @@ export function getMandatoryPackages(): string[] {
   return Array.isArray(reg.mandatory) ? reg.mandatory : [];
 }
 
+export function getFeaturedPackages(): string[] {
+  const reg = loadRegistry();
+  return Array.isArray(reg.featured) ? reg.featured : [];
+}
+
 export function listPackages(): PackageEntry[] {
   const reg = loadRegistry();
   const order: Record<string, number> = { git: 0, npm: 1, local: 2 };

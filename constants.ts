@@ -82,6 +82,8 @@ export interface Registry {
   poolLastUpdateCheck?: string;
   /** Packages that are auto-enabled for every repo (can be toggled off per-repo) */
   mandatory?: string[];
+  /** Packages shown at top of the list in display order */
+  featured?: string[];
   /** All managed packages */
   packages: Record<string, PackageEntry>;
 }

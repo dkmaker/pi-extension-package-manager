@@ -18,6 +18,7 @@ import {
   isGitRepo,
   gitHasRemote,
   getMandatoryPackages,
+  getFeaturedPackages,
 } from "./registry.js";
 import {
   loadRepoManifest,
@@ -135,10 +136,13 @@ export default function (pi: ExtensionAPI) {
       const manifest = loadRepoManifest(cwd);
       const mandatory = getMandatoryPackages();
       const mandatorySet = new Set(mandatory);
-      // Display order: normal packages by source type, then mandatory at bottom
-      const normalPkgs = allPkgs.filter(p => !mandatorySet.has(p.name));
+      const featured = getFeaturedPackages();
+      const featuredSet = new Set(featured);
+      // Display order: featured (in registry order), then normal by source type, then mandatory at bottom
+      const featuredPkgs = featured.map(name => allPkgs.find(p => p.name === name)).filter(Boolean) as typeof allPkgs;
+      const normalPkgs = allPkgs.filter(p => !mandatorySet.has(p.name) && !featuredSet.has(p.name));
       const mandatoryPkgs = allPkgs.filter(p => mandatorySet.has(p.name));
-      const displayPkgs = [...normalPkgs, ...mandatoryPkgs];
+      const displayPkgs = [...featuredPkgs, ...normalPkgs, ...mandatoryPkgs];
       const termRows = process.stdout.rows || 40;
       const visibleRows = Math.max(12, Math.floor(termRows * 0.6));
 
@@ -197,14 +201,17 @@ export default function (pi: ExtensionAPI) {
             for (let i = 0; i < displayPkgs.length; i++) {
               const pkg = displayPkgs[i];
               const isMandatory = mandatorySet.has(pkg.name);
+              const isFeatured = featuredSet.has(pkg.name);
 
               // Group headers
-              if (isMandatory && (i === 0 || !mandatorySet.has(displayPkgs[i - 1].name))) {
-                // First mandatory item — add section header
+              if (isFeatured && (i === 0 || !featuredSet.has(displayPkgs[i - 1].name))) {
+                rows.push({ line: "", idx: -1 });
+                rows.push({ line: theme.fg("dim", ` ── Featured ──`), idx: -1 });
+              } else if (isMandatory && (i === 0 || !mandatorySet.has(displayPkgs[i - 1].name))) {
                 rows.push({ line: "", idx: -1 });
                 rows.push({ line: theme.fg("dim", ` ── Auto-Enabled ──`), idx: -1 });
-                lastSource = ""; // reset so we don't carry over
-              } else if (!isMandatory && pkg.sourceType !== lastSource) {
+                lastSource = "";
+              } else if (!isMandatory && !isFeatured && pkg.sourceType !== lastSource) {
                 lastSource = pkg.sourceType;
                 const label = pkg.sourceType === "git" ? "Git Packages" : pkg.sourceType === "npm" ? "npm Packages" : "Local Packages";
                 rows.push({ line: "", idx: -1 });
