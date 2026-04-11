@@ -80,6 +80,8 @@ export interface Registry {
   /** Optional git remote for the pool itself */
   gitRemote?: string;
   poolLastUpdateCheck?: string;
+  /** Packages that are auto-enabled for every repo (can be toggled off per-repo) */
+  mandatory?: string[];
   /** All managed packages */
   packages: Record<string, PackageEntry>;
 }
@@ -87,8 +89,10 @@ export interface Registry {
 export interface RepoManifest {
   /** Absolute path to the repo */
   repoPath: string;
-  /** List of enabled package names */
+  /** List of enabled package names (opt-in) */
   enabled: string[];
+  /** List of mandatory packages explicitly disabled for this repo */
+  disabled: string[];
 }
 
 /** What a package provides (resolved from pi manifest or convention dirs) */

@@ -9,7 +9,7 @@ import {
   type RepoManifest,
   type PackageResources,
 } from "./constants.js";
-import { loadRegistry, packageDir } from "./registry.js";
+import { loadRegistry, packageDir, getMandatoryPackages } from "./registry.js";
 
 // ============================================================================
 // Repo hashing
@@ -38,9 +38,10 @@ export function loadRepoManifest(repoPath: string): RepoManifest {
     return {
       repoPath: data.repoPath || repoPath,
       enabled: Array.isArray(data.enabled) ? data.enabled : [],
+      disabled: Array.isArray(data.disabled) ? data.disabled : [],
     };
   } catch {
-    return { repoPath, enabled: [] };
+    return { repoPath, enabled: [], disabled: [] };
   }
 }
 
@@ -163,6 +164,40 @@ export function resolvePackageResources(pkgName: string): PackageResources {
 }
 
 // ============================================================================
+// Resolve active packages for a repo
+// ============================================================================
+
+/**
+ * Resolve the active package set: (mandatory - disabled) + enabled, deduplicated.
+ * Accepts an optional pre-loaded manifest to avoid double-reads.
+ */
+export function getActivePackages(repoPath: string, manifest?: RepoManifest): string[] {
+  const m = manifest || loadRepoManifest(repoPath);
+  const mandatory = getMandatoryPackages();
+  const disabledSet = new Set(m.disabled);
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  // Mandatory packages first (unless disabled)
+  for (const name of mandatory) {
+    if (!disabledSet.has(name) && !seen.has(name)) {
+      seen.add(name);
+      result.push(name);
+    }
+  }
+
+  // Then explicitly enabled packages
+  for (const name of m.enabled) {
+    if (!seen.has(name)) {
+      seen.add(name);
+      result.push(name);
+    }
+  }
+
+  return result;
+}
+
+// ============================================================================
 // Generate pi package.json for a repo
 // ============================================================================
 
@@ -176,7 +211,10 @@ export function generatePackageJson(repoPath: string): string {
   const allPrompts: string[] = [];
   const allThemes: string[] = [];
 
-  for (const pkgName of manifest.enabled) {
+  // Resolve active packages: (mandatory - disabled) + enabled, deduplicated
+  const active = getActivePackages(repoPath, manifest);
+
+  for (const pkgName of active) {
     const resources = resolvePackageResources(pkgName);
     allExtensions.push(...resources.extensions);
     allSkills.push(...resources.skills);
@@ -207,17 +245,34 @@ export function generatePackageJson(repoPath: string): string {
 
 export function togglePackage(repoPath: string, pkgName: string): boolean {
   const manifest = loadRepoManifest(repoPath);
-  const idx = manifest.enabled.indexOf(pkgName);
+  const mandatory = getMandatoryPackages();
+  const isMandatory = mandatory.includes(pkgName);
 
-  if (idx >= 0) {
-    manifest.enabled.splice(idx, 1);
+  if (isMandatory) {
+    // Mandatory packages toggle via the disabled list
+    const idx = manifest.disabled.indexOf(pkgName);
+    if (idx >= 0) {
+      // Currently disabled → re-enable (remove from disabled)
+      manifest.disabled.splice(idx, 1);
+    } else {
+      // Currently enabled (default) → disable
+      manifest.disabled.push(pkgName);
+    }
+    saveRepoManifest(manifest);
+    generatePackageJson(repoPath);
+    return idx >= 0; // true if now enabled (was in disabled, removed)
   } else {
-    manifest.enabled.push(pkgName);
+    // Normal packages toggle via the enabled list
+    const idx = manifest.enabled.indexOf(pkgName);
+    if (idx >= 0) {
+      manifest.enabled.splice(idx, 1);
+    } else {
+      manifest.enabled.push(pkgName);
+    }
+    saveRepoManifest(manifest);
+    generatePackageJson(repoPath);
+    return idx < 0; // true if now enabled
   }
-
-  saveRepoManifest(manifest);
-  generatePackageJson(repoPath);
-  return idx < 0; // true if now enabled
 }
 
 export function enablePackage(repoPath: string, pkgName: string): void {

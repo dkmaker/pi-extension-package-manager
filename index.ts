@@ -17,6 +17,7 @@ import {
   installDependenciesIfNeeded,
   isGitRepo,
   gitHasRemote,
+  getMandatoryPackages,
 } from "./registry.js";
 import {
   loadRepoManifest,
@@ -25,6 +26,7 @@ import {
   generatePackageJson,
   ensurePackageInSettings,
   getPackageDescription,
+  getActivePackages,
   repoHash,
 } from "./store.js";
 import { validatePackage } from "./onboard.js";
@@ -60,15 +62,15 @@ export default function (pi: ExtensionAPI) {
     ensurePackageInSettings(cwd);
 
     const allPkgs = userPackages();
-    const manifest = loadRepoManifest(cwd);
-    const enabledCount = manifest.enabled.length;
+    const active = getActivePackages(cwd);
+    const enabledCount = active.length;
 
     ctx.ui.setStatus("pkg-count", pkgStatus(enabledCount, allPkgs.length));
 
     // Show enabled packages briefly
     if (enabledCount > 0) {
       ctx.ui.setWidget("pkg-active", [
-        `📦 ${enabledCount} managed: ${manifest.enabled.join(" · ")}`,
+        `📦 ${enabledCount} managed: ${active.join(" · ")}`,
       ]);
       setTimeout(() => ctx.ui.setWidget("pkg-active", undefined), 5000);
     }
@@ -108,6 +110,8 @@ export default function (pi: ExtensionAPI) {
       }
 
       const manifest = loadRepoManifest(cwd);
+      const mandatory = getMandatoryPackages();
+      const mandatorySet = new Set(mandatory);
       const termRows = process.stdout.rows || 40;
       const visibleRows = Math.max(12, Math.floor(termRows * 0.6));
 
@@ -118,8 +122,8 @@ export default function (pi: ExtensionAPI) {
           let scrollOffset = 0;
           let changed = false;
 
-          // Live state: track enabled per package
-          const enabledSet = new Set(manifest.enabled);
+          // Live state: track active per package (resolved from mandatory + enabled - disabled)
+          const activeSet = new Set(getActivePackages(cwd, manifest));
 
           function refresh() { cache = undefined; tui.requestRender(); }
 
@@ -141,8 +145,8 @@ export default function (pi: ExtensionAPI) {
             if (matchesKey(data, "space")) {
               const pkg = allPkgs[cursor];
               const nowEnabled = togglePackage(cwd, pkg.name);
-              if (nowEnabled) enabledSet.add(pkg.name);
-              else enabledSet.delete(pkg.name);
+              if (nowEnabled) activeSet.add(pkg.name);
+              else activeSet.delete(pkg.name);
               changed = true;
               refresh();
               return;
@@ -156,14 +160,38 @@ export default function (pi: ExtensionAPI) {
 
             // Header
             add(theme.fg("accent", "─".repeat(width)));
-            add(` 📦 Package Manager    ${theme.fg("dim", `${enabledSet.size} enabled · ${allPkgs.length} total`)}`);
+            add(` 📦 Package Manager    ${theme.fg("dim", `${activeSet.size} enabled · ${allPkgs.length} total`)}`);
             add(theme.fg("accent", "─".repeat(width)));
 
-            // Package rows
+            // Package rows — mandatory first, then by source type
             const rows: { line: string; idx: number }[] = [];
+            const mandatoryPkgs = allPkgs.filter(p => mandatorySet.has(p.name));
+            const normalPkgs = allPkgs.filter(p => !mandatorySet.has(p.name));
+
+            if (mandatoryPkgs.length > 0) {
+              rows.push({ line: "", idx: -1 });
+              rows.push({ line: theme.fg("dim", ` ── Auto-Enabled ──`), idx: -1 });
+              for (const pkg of mandatoryPkgs) {
+                const i = allPkgs.indexOf(pkg);
+                const isCur = i === cursor;
+                const enabled = activeSet.has(pkg.name);
+                const icon = enabled ? theme.fg("accent", "✓") : theme.fg("dim", "·");
+                const pointer = isCur ? theme.fg("accent", "▸ ") : "  ";
+                const nameColor = isCur ? "accent" : enabled ? "text" : "dim";
+                const nameStr = theme.fg(nameColor as any, pkg.name);
+                const badge = theme.fg("accent", " ★");
+                const desc = theme.fg("dim", ` — ${getPackageDescription(pkg.name)}`);
+                const updateBadge = pkg.updateAvailable ? theme.fg("warning" as any, " ⬆") : "";
+                rows.push({
+                  line: truncateToWidth(`${pointer}[${icon}]${badge} ${nameStr}${desc}${updateBadge}`, width),
+                  idx: i,
+                });
+              }
+            }
+
             let lastSource = "";
-            for (let i = 0; i < allPkgs.length; i++) {
-              const pkg = allPkgs[i];
+            for (const pkg of normalPkgs) {
+              const i = allPkgs.indexOf(pkg);
 
               // Group header by source type
               if (pkg.sourceType !== lastSource) {
@@ -174,7 +202,7 @@ export default function (pi: ExtensionAPI) {
               }
 
               const isCur = i === cursor;
-              const enabled = enabledSet.has(pkg.name);
+              const enabled = activeSet.has(pkg.name);
               const icon = enabled ? theme.fg("accent", "✓") : theme.fg("dim", "·");
               const pointer = isCur ? theme.fg("accent", "▸ ") : "  ";
               const nameColor = isCur ? "accent" : enabled ? "text" : "dim";
@@ -233,8 +261,8 @@ export default function (pi: ExtensionAPI) {
 
       if (result?.changed) {
         const added = ensurePackageInSettings(cwd);
-        const updatedManifest = loadRepoManifest(cwd);
-        ctx.ui.setStatus("pkg-count", pkgStatus(updatedManifest.enabled.length, allPkgs.length));
+        const updatedActive = getActivePackages(cwd);
+        ctx.ui.setStatus("pkg-count", pkgStatus(updatedActive.length, allPkgs.length));
         ctx.ui.notify(
           `Package state updated.${added ? " Added to .pi/settings.json." : ""}\nRun /reload to apply changes.`,
           "info"
@@ -249,8 +277,9 @@ export default function (pi: ExtensionAPI) {
     handler: async (_args, ctx) => {
       const cwd = process.cwd();
       const allPkgs = userPackages();
-      const manifest = loadRepoManifest(cwd);
-      const enabledSet = new Set(manifest.enabled);
+      const activeSet = new Set(getActivePackages(cwd));
+      const mandatoryNames = getMandatoryPackages();
+      const mandatorySetList = new Set(mandatoryNames);
 
       if (!allPkgs.length) {
         ctx.ui.notify(`No packages in pool. Use /packages-add <source> to add.`, "warning");
@@ -258,14 +287,29 @@ export default function (pi: ExtensionAPI) {
       }
 
       const lines: string[] = [`📦 Package Manager — ${allPkgs.length} packages\n`];
+
+      // Show mandatory packages first
+      const mandatoryPkgs = allPkgs.filter(p => mandatorySetList.has(p.name));
+      const normalPkgs = allPkgs.filter(p => !mandatorySetList.has(p.name));
+
+      if (mandatoryPkgs.length > 0) {
+        lines.push(`\n── Auto-Enabled ★ ──`);
+        for (const pkg of mandatoryPkgs) {
+          const enabled = activeSet.has(pkg.name);
+          const icon = enabled ? "✓" : "·";
+          const update = pkg.updateAvailable ? " ⬆" : "";
+          lines.push(`  [${icon}] ★ ${pkg.name}${update} — ${getPackageDescription(pkg.name)}`);
+        }
+      }
+
       let lastSource = "";
-      for (const pkg of allPkgs) {
+      for (const pkg of normalPkgs) {
         if (pkg.sourceType !== lastSource) {
           lastSource = pkg.sourceType;
           const label = pkg.sourceType === "git" ? "Git" : pkg.sourceType === "npm" ? "npm" : "Local";
           lines.push(`\n── ${label} ──`);
         }
-        const enabled = enabledSet.has(pkg.name);
+        const enabled = activeSet.has(pkg.name);
         const icon = enabled ? "✓" : "·";
         const update = pkg.updateAvailable ? " ⬆" : "";
         lines.push(`  [${icon}] ${pkg.name}${update} — ${getPackageDescription(pkg.name)}`);
@@ -273,7 +317,7 @@ export default function (pi: ExtensionAPI) {
         if (srcPath) lines.push(`       ${srcPath}`);
       }
 
-      lines.push(`\n✓=enabled for this repo  ·=available  ⬆=update available`);
+      lines.push(`\n✓=enabled  ·=disabled  ★=auto-enabled  ⬆=update available`);
       if (isGitEnabled()) {
         lines.push(`Git pool: ${getGitRemote() || "enabled"}`);
       }
@@ -459,8 +503,7 @@ export default function (pi: ExtensionAPI) {
 
       // Update status
       const allPkgs = userPackages();
-      const manifest = loadRepoManifest(process.cwd());
-      ctx.ui.setStatus("pkg-count", pkgStatus(manifest.enabled.length, allPkgs.length));
+      ctx.ui.setStatus("pkg-count", pkgStatus(getActivePackages(process.cwd()).length, allPkgs.length));
     },
   });
 
@@ -580,8 +623,7 @@ export default function (pi: ExtensionAPI) {
         ensureGitignore();
 
         const allPkgs = userPackages();
-        const manifest = loadRepoManifest(cwd);
-        ctx.ui.setStatus("pkg-count", pkgStatus(manifest.enabled.length, allPkgs.length));
+        ctx.ui.setStatus("pkg-count", pkgStatus(getActivePackages(cwd).length, allPkgs.length));
 
         const msg = `✅ Registered "${name}" and enabled for this repo.` +
           (depsInstalled ? ` Dependencies installed.` : ``) +
