@@ -45,6 +45,9 @@ export const REPOS_DIR = join(PKG_MGR_ROOT, "repos");
 /** Registry file — source of truth for all packages */
 export const REGISTRY_PATH = join(PKG_MGR_ROOT, "registry.json");
 
+/** Local state file — volatile/machine-local data (never synced via git) */
+export const STATE_PATH = join(CONFIG_ROOT, "packagemanagerstate.json");
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -66,8 +69,12 @@ export interface PackageEntry {
   version?: string;
   /** Original path if onboarded */
   onboardedFrom?: string;
+}
+
+/** Per-package volatile/machine-local state (lives in packagemanagerstate.json, never synced) */
+export interface PackageState {
   /** ISO timestamp of installation */
-  installedAt: string;
+  installedAt?: string;
   /** ISO timestamp of last update check */
   lastUpdateCheck?: string;
   /** Whether an update is available (remote ahead of local) */
@@ -76,10 +83,17 @@ export interface PackageEntry {
   pushAvailable?: boolean;
 }
 
+/** Top-level local state file */
+export interface ManagerState {
+  /** Last time we checked the git pool itself for updates */
+  poolLastUpdateCheck?: string;
+  /** Per-package state keyed by package name */
+  packages: Record<string, PackageState>;
+}
+
 export interface Registry {
   /** Optional git remote for the pool itself */
   gitRemote?: string;
-  poolLastUpdateCheck?: string;
   /** Packages that are auto-enabled for every repo (can be toggled off per-repo) */
   mandatory?: string[];
   /** Packages shown at top of the list in display order */

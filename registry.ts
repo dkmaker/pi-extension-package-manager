@@ -4,9 +4,12 @@ import {
   PKG_MGR_ROOT,
   PACKAGES_DIR,
   REGISTRY_PATH,
+  STATE_PATH,
   type Registry,
   type PackageEntry,
   type PackageSource,
+  type PackageState,
+  type ManagerState,
 } from "./constants.js";
 
 // ============================================================================
@@ -40,6 +43,7 @@ export function removePackage(name: string): void {
   const reg = loadRegistry();
   delete reg.packages[name];
   saveRegistry(reg);
+  removePackageState(name);
 }
 
 export function getMandatoryPackages(): string[] {
@@ -50,6 +54,39 @@ export function getMandatoryPackages(): string[] {
 export function getFeaturedPackages(): string[] {
   const reg = loadRegistry();
   return Array.isArray(reg.featured) ? reg.featured : [];
+}
+
+// ============================================================================
+// Local state (packagemanagerstate.json) — volatile, never git-synced
+// ============================================================================
+
+export function loadState(): ManagerState {
+  try {
+    return JSON.parse(readFileSync(STATE_PATH, "utf-8"));
+  } catch {
+    return { packages: {} };
+  }
+}
+
+export function saveState(state: ManagerState): void {
+  mkdirSync(dirname(STATE_PATH), { recursive: true });
+  writeFileSync(STATE_PATH, JSON.stringify(state, null, 2));
+}
+
+export function getPackageState(name: string): PackageState {
+  return loadState().packages[name] ?? {};
+}
+
+export function setPackageState(name: string, patch: Partial<PackageState>): void {
+  const state = loadState();
+  state.packages[name] = { ...(state.packages[name] ?? {}), ...patch };
+  saveState(state);
+}
+
+export function removePackageState(name: string): void {
+  const state = loadState();
+  delete state.packages[name];
+  saveState(state);
 }
 
 export function listPackages(): PackageEntry[] {

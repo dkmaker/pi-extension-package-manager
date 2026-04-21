@@ -8,6 +8,8 @@ import {
   saveRegistry,
   listPackages,
   packageDir,
+  getPackageState,
+  setPackageState,
   gitFetchCheck,
   gitPull,
   gitGetCommit,
@@ -37,8 +39,9 @@ export function getPackagesNeedingCheck(): PackageEntry[] {
   const now = Date.now();
   return listPackages().filter(pkg => {
     if (pkg.sourceType === "local" && !isLocalGitPackage(pkg)) return false;
-    if (!pkg.lastUpdateCheck) return true;
-    return now - new Date(pkg.lastUpdateCheck).getTime() > UPDATE_CHECK_INTERVAL_MS;
+    const state = getPackageState(pkg.name);
+    if (!state.lastUpdateCheck) return true;
+    return now - new Date(state.lastUpdateCheck).getTime() > UPDATE_CHECK_INTERVAL_MS;
   });
 }
 
@@ -71,9 +74,10 @@ export function checkPackageUpdate(pkg: PackageEntry): boolean {
     // Silently fail — don't break session start
   }
 
-  entry.lastUpdateCheck = new Date().toISOString();
-  entry.updateAvailable = updateAvailable;
-  saveRegistry(reg);
+  setPackageState(pkg.name, {
+    lastUpdateCheck: new Date().toISOString(),
+    updateAvailable,
+  });
 
   return updateAvailable;
 }
@@ -115,7 +119,7 @@ export function forceCheckAllUpdates(): string[] {
  * Get all packages that have pending updates (already checked).
  */
 export function getPendingUpdates(): PackageEntry[] {
-  return listPackages().filter(pkg => pkg.updateAvailable);
+  return listPackages().filter(pkg => getPackageState(pkg.name).updateAvailable);
 }
 
 // ============================================================================
@@ -147,9 +151,8 @@ export function applyUpdate(name: string): UpdateResult {
       installDependenciesIfNeeded(dir);
 
       entry.commit = newCommit;
-      entry.updateAvailable = false;
-      entry.lastUpdateCheck = new Date().toISOString();
       saveRegistry(reg);
+      setPackageState(name, { updateAvailable: false, lastUpdateCheck: new Date().toISOString() });
 
       return {
         name,
@@ -169,9 +172,8 @@ export function applyUpdate(name: string): UpdateResult {
       const newVersion = npmInstallPackage(parsed.value, dir);
 
       entry.version = newVersion;
-      entry.updateAvailable = false;
-      entry.lastUpdateCheck = new Date().toISOString();
       saveRegistry(reg);
+      setPackageState(name, { updateAvailable: false, lastUpdateCheck: new Date().toISOString() });
 
       return {
         name,
@@ -194,9 +196,8 @@ export function applyUpdate(name: string): UpdateResult {
       }
 
       entry.commit = newCommit;
-      entry.updateAvailable = false;
-      entry.lastUpdateCheck = new Date().toISOString();
       saveRegistry(reg);
+      setPackageState(name, { updateAvailable: false, lastUpdateCheck: new Date().toISOString() });
 
       return {
         name,

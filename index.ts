@@ -11,6 +11,8 @@ import {
   removePackage,
   packageDir,
   parseSource,
+  getPackageState,
+  setPackageState,
   gitClone,
   gitPush,
   npmInstallPackage,
@@ -227,7 +229,7 @@ export default function (pi: ExtensionAPI) {
               const mandatoryBadge = isMandatory ? theme.fg("accent", "★") : " ";
               const resBadge = getResourceBadge(pkg.name, theme);
               const desc = theme.fg("dim", ` — ${getPackageDescription(pkg.name)}`);
-              const updateBadge = pkg.updateAvailable ? theme.fg("warning" as any, " ⬆") : "";
+              const updateBadge = getPackageState(pkg.name).updateAvailable ? theme.fg("warning" as any, " ⬆") : "";
               // Pad name to align badges — use raw name length for padding
               const padded = pkg.name + " ".repeat(Math.max(1, 22 - pkg.name.length));
               const paddedStr = theme.fg(nameColor as any, padded);
@@ -320,7 +322,7 @@ export default function (pi: ExtensionAPI) {
         for (const pkg of mandatoryPkgs) {
           const enabled = activeSet.has(pkg.name);
           const icon = enabled ? "✓" : "·";
-          const update = pkg.updateAvailable ? " ⬆" : "";
+          const update = getPackageState(pkg.name).updateAvailable ? " ⬆" : "";
           lines.push(`  [${icon}] ★ ${pkg.name} ${getResourceBadgePlain(pkg.name)}${update} — ${getPackageDescription(pkg.name)}`);
         }
       }
@@ -334,7 +336,7 @@ export default function (pi: ExtensionAPI) {
         }
         const enabled = activeSet.has(pkg.name);
         const icon = enabled ? "✓" : "·";
-        const update = pkg.updateAvailable ? " ⬆" : "";
+        const update = getPackageState(pkg.name).updateAvailable ? " ⬆" : "";
         lines.push(`  [${icon}] ${pkg.name} ${getResourceBadgePlain(pkg.name)}${update} — ${getPackageDescription(pkg.name)}`);
         const srcPath = pkg.sourceType === "local" ? packageDir(pkg.name) : pkg.source;
         if (srcPath) lines.push(`       ${srcPath}`);
@@ -395,10 +397,8 @@ export default function (pi: ExtensionAPI) {
             source: source,
             ref: parsed.ref,
             commit,
-            installedAt: new Date().toISOString(),
-            lastUpdateCheck: new Date().toISOString(),
-            updateAvailable: false,
           });
+          setPackageState(parsed.name, { installedAt: new Date().toISOString(), lastUpdateCheck: new Date().toISOString(), updateAvailable: false });
         } else if (parsed.type === "npm") {
           mkdirSync(dir, { recursive: true });
           const version = npmInstallPackage(parsed.value, dir);
@@ -408,10 +408,8 @@ export default function (pi: ExtensionAPI) {
             sourceType: "npm",
             source: source,
             version,
-            installedAt: new Date().toISOString(),
-            lastUpdateCheck: new Date().toISOString(),
-            updateAvailable: false,
           });
+          setPackageState(parsed.name, { installedAt: new Date().toISOString(), lastUpdateCheck: new Date().toISOString(), updateAvailable: false });
         } else {
           // Local: copy into pool, store abs path for future git-pull support
           const { cpSync } = require("fs");
@@ -426,8 +424,8 @@ export default function (pi: ExtensionAPI) {
             name: parsed.name,
             sourceType: "local",
             source: absPath,
-            installedAt: new Date().toISOString(),
           });
+          setPackageState(parsed.name, { installedAt: new Date().toISOString() });
         }
 
         // Update pool gitignore
@@ -624,8 +622,8 @@ export default function (pi: ExtensionAPI) {
           sourceType: "local",
           source: "local",
           onboardedFrom: "onboarded",
-          installedAt: new Date().toISOString(),
         });
+        setPackageState(name, { installedAt: new Date().toISOString() });
 
         // Install dependencies if package.json has them
         let depsInstalled = false;

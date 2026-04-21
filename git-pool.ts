@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { execSync, exec } from "child_process";
 import { join } from "path";
 import { PKG_MGR_ROOT, PACKAGES_DIR, REPOS_DIR, UPDATE_CHECK_INTERVAL_MS } from "./constants.js";
-import { loadRegistry, saveRegistry } from "./registry.js";
+import { loadRegistry, saveRegistry, loadState, saveState } from "./registry.js";
 
 // ============================================================================
 // Git-enable the pool
@@ -192,14 +192,14 @@ export function checkPoolUpdate(): boolean {
 export function checkPoolUpdateAsync(onUpdate: (msg: string) => void): void {
   if (!isGitEnabled()) return;
 
-  const reg = loadRegistry();
+  const state = loadState();
   const now = Date.now();
-  const last = reg.poolLastUpdateCheck ? new Date(reg.poolLastUpdateCheck).getTime() : 0;
+  const last = state.poolLastUpdateCheck ? new Date(state.poolLastUpdateCheck).getTime() : 0;
   if (now - last < UPDATE_CHECK_INTERVAL_MS) return;
 
   // Update timestamp immediately so concurrent sessions don't double-check
-  reg.poolLastUpdateCheck = new Date().toISOString();
-  saveRegistry(reg);
+  state.poolLastUpdateCheck = new Date().toISOString();
+  saveState(state);
 
   exec("git fetch --depth=1", { cwd: PKG_MGR_ROOT }, (err) => {
     if (err) return;
