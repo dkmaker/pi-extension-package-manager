@@ -397,8 +397,9 @@ export default function (pi: ExtensionAPI) {
             source: source,
             ref: parsed.ref,
             commit,
+            installedAt: new Date().toISOString(),
           });
-          setPackageState(parsed.name, { installedAt: new Date().toISOString(), lastUpdateCheck: new Date().toISOString(), updateAvailable: false });
+          setPackageState(parsed.name, { lastUpdateCheck: new Date().toISOString(), updateAvailable: false });
         } else if (parsed.type === "npm") {
           mkdirSync(dir, { recursive: true });
           const version = npmInstallPackage(parsed.value, dir);
@@ -408,8 +409,9 @@ export default function (pi: ExtensionAPI) {
             sourceType: "npm",
             source: source,
             version,
+            installedAt: new Date().toISOString(),
           });
-          setPackageState(parsed.name, { installedAt: new Date().toISOString(), lastUpdateCheck: new Date().toISOString(), updateAvailable: false });
+          setPackageState(parsed.name, { lastUpdateCheck: new Date().toISOString(), updateAvailable: false });
         } else {
           // Local: copy into pool, store abs path for future git-pull support
           const { cpSync } = require("fs");
@@ -424,8 +426,8 @@ export default function (pi: ExtensionAPI) {
             name: parsed.name,
             sourceType: "local",
             source: absPath,
+            installedAt: new Date().toISOString(),
           });
-          setPackageState(parsed.name, { installedAt: new Date().toISOString() });
         }
 
         // Update pool gitignore
@@ -622,8 +624,8 @@ export default function (pi: ExtensionAPI) {
           sourceType: "local",
           source: "local",
           onboardedFrom: "onboarded",
+          installedAt: new Date().toISOString(),
         });
-        setPackageState(name, { installedAt: new Date().toISOString() });
 
         // Install dependencies if package.json has them
         let depsInstalled = false;

@@ -69,12 +69,12 @@ export interface PackageEntry {
   version?: string;
   /** Original path if onboarded */
   onboardedFrom?: string;
+  /** ISO timestamp of installation (set once at install time) */
+  installedAt?: string;
 }
 
 /** Per-package volatile/machine-local state (lives in packagemanagerstate.json, never synced) */
 export interface PackageState {
-  /** ISO timestamp of installation */
-  installedAt?: string;
   /** ISO timestamp of last update check */
   lastUpdateCheck?: string;
   /** Whether an update is available (remote ahead of local) */
