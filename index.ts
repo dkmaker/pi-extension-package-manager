@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { matchesKey, Key, truncateToWidth, Box } from "@mariozechner/pi-tui";
 import { existsSync, mkdirSync, rmSync } from "fs";
+import { execSync } from "child_process";
 import { resolve, basename } from "path";
 import { PACKAGES_DIR, PKG_MGR_ROOT, type PackageEntry } from "./constants.js";
 import {
@@ -34,7 +35,7 @@ import {
   repoHash,
 } from "./store.js";
 import { validatePackage } from "./onboard.js";
-import { gitInitPool, gitSyncPool, gitPushPool, checkPoolUpdate, checkPoolUpdateAsync, gitPullPool, isGitEnabled, getGitRemote, ensureGitignore } from "./git-pool.js";
+import { gitInitPool, gitSyncPool, gitPushPool, checkPoolUpdate, checkPoolUpdateAsync, gitPullPool, isGitEnabled, getGitRemote, ensureGitignore, gitMergeToMain, getDeviceBranch, hasMergeInProgress, getMergeConflicts, finalizeMerge, abortMerge } from "./git-pool.js";
 import { checkAllUpdates, forceCheckAllUpdates, getPendingUpdates, applyUpdate, applyAllUpdates } from "./updates.js";
 
 // ============================================================================
@@ -73,6 +74,37 @@ function getResourceBadgePlain(pkgName: string): string {
   if (res.prompts.length) badge += "P";
   if (res.themes.length) badge += "T";
   return badge ? `[${badge}]` : "[-]";
+}
+
+/** Send a steer message to the agent to resolve merge conflicts */
+function sendConflictResolutionMessage(pi: ExtensionAPI, conflictFiles: string, mergeDescription: string): void {
+  const fileList = conflictFiles.split("\n").map(f => f.trim()).filter(Boolean);
+  pi.sendMessage({
+    customType: "packages-merge-conflict",
+    display: false,
+    content: [
+      `⚠️ MERGE CONFLICT — merging ${mergeDescription}`,
+      ``,
+      `A merge is in progress in the package pool at ${PKG_MGR_ROOT}.`,
+      `The following files have conflicts:`,
+      ...fileList.map(f => `  - ${PKG_MGR_ROOT}/${f}`),
+      ``,
+      `INSTRUCTIONS:`,
+      `1. Read each conflicted file listed above.`,
+      `2. The files contain Git conflict markers (<<<<<<< HEAD, =======, >>>>>>> ...).`,
+      `3. For each file, decide the correct resolution:`,
+      `   - For JSON arrays (like plan_history.json): merge both sides — combine all entries, dedupe, sort by timestamp.`,
+      `   - For JSON objects (like registry.json): merge fields from both sides. If the same key has different values, STOP and ask the user which to keep.`,
+      `   - For code files (.ts, .js): analyze both versions. If the intent is clear (e.g. both sides add different features), combine them. If there's a genuine conflict where two versions of the same code exist, STOP and show both versions to the user and ask which to keep.`,
+      `4. Edit each file to remove ALL conflict markers and produce the correct merged content.`,
+      `5. NEVER discard changes from either side without asking the user.`,
+      `6. After all files are resolved, run /packages-git-resolve to finalize the merge.`,
+      `7. If you cannot resolve a conflict, explain the situation to the user and let them decide. They can also run /packages-git-resolve abort to cancel the merge entirely.`,
+    ].join("\n"),
+  }, {
+    triggerTurn: true,
+    deliverAs: "steer",
+  });
 }
 
 export default function (pi: ExtensionAPI) {
@@ -739,7 +771,7 @@ export default function (pi: ExtensionAPI) {
 
   // ── /packages-git-sync — push/pull the pool ────────────────────────────
   pi.registerCommand("packages-git-sync", {
-    description: "Sync the package pool with its git remote",
+    description: "Sync the package pool with its git remote (commits to device branch, pulls main)",
     handler: async (_args, ctx) => {
       if (!isGitEnabled()) {
         ctx.ui.notify("Git is not enabled. Use /packages-git-init <remote> first.", "warning");
@@ -747,7 +779,67 @@ export default function (pi: ExtensionAPI) {
       }
 
       const result = gitSyncPool((msg) => ctx.ui.notify(msg, "info"));
-      ctx.ui.notify(`📦 ${result.message}`, result.pushed ? "info" : "warning");
+      if (result.message.startsWith("MERGE_CONFLICT:")) {
+        const files = result.message.replace("MERGE_CONFLICT:", "").trim();
+        ctx.ui.notify(`⚠️ Merge conflict detected. The agent will resolve it.`, "warning");
+        sendConflictResolutionMessage(pi, files, "origin/main into device branch");
+      } else {
+        ctx.ui.notify(`📦 ${result.message}`, result.pushed ? "info" : "warning");
+      }
+    },
+  });
+
+  // ── /packages-git-merge — merge device branch into main ─────────────────
+  pi.registerCommand("packages-git-merge", {
+    description: "Merge this device's branch into main and push",
+    handler: async (_args, ctx) => {
+      if (!isGitEnabled()) {
+        ctx.ui.notify("Git is not enabled. Use /packages-git-init <remote> first.", "warning");
+        return;
+      }
+
+      const deviceBranch = getDeviceBranch();
+      ctx.ui.notify(`📦 Merging ${deviceBranch} into main...`, "info");
+      const result = gitMergeToMain((msg) => ctx.ui.notify(msg, "info"));
+      if (result.message.startsWith("MERGE_CONFLICT:")) {
+        const files = result.message.replace("MERGE_CONFLICT:", "").trim();
+        ctx.ui.notify(`⚠️ Merge conflict detected. The agent will resolve it.`, "warning");
+        sendConflictResolutionMessage(pi, files, `${deviceBranch} into main`);
+      } else if (result.success) {
+        ctx.ui.notify(`✅ ${result.message}`, "info");
+      } else {
+        ctx.ui.notify(`❌ ${result.message}`, "error");
+      }
+    },
+  });
+
+  // ── /packages-git-resolve — finalize or abort a conflicted merge ───────
+  pi.registerCommand("packages-git-resolve", {
+    description: "Finalize a resolved merge conflict, or abort with: /packages-git-resolve abort",
+    handler: async (args, ctx) => {
+      if (!hasMergeInProgress()) {
+        ctx.ui.notify("No merge in progress.", "info");
+        return;
+      }
+
+      if (args.trim() === "abort") {
+        const result = abortMerge();
+        ctx.ui.notify(result.success ? `✅ ${result.message}` : `❌ ${result.message}`, result.success ? "info" : "error");
+        return;
+      }
+
+      const result = finalizeMerge();
+      if (result.success) {
+        ctx.ui.notify(`✅ ${result.message}`, "info");
+        // Push after successful resolution
+        const deviceBranch = getDeviceBranch();
+        try {
+          execSync(`git push -u origin ${deviceBranch}`, { cwd: PKG_MGR_ROOT, stdio: "pipe" });
+          ctx.ui.notify(`📦 Pushed ${deviceBranch} to remote.`, "info");
+        } catch {}
+      } else {
+        ctx.ui.notify(`❌ ${result.message}`, "error");
+      }
     },
   });
 

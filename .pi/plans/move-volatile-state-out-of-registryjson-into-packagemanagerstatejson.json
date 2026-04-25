@@ -1,0 +1,24 @@
+{
+  "title": "Move volatile state out of registry.json into packagemanagerstate.json",
+  "slug": "move-volatile-state-out-of-registryjson-into-packagemanagerstatejson",
+  "deleted": false,
+  "completed": true,
+  "todos": [
+    {
+      "id": 1,
+      "description": "Verify TypeScript compiles cleanly (find tsc or use pi's build)",
+      "status": "done"
+    },
+    {
+      "id": 2,
+      "description": "Audit index.ts for any remaining installedAt display/read from pkg directly",
+      "status": "done"
+    },
+    {
+      "id": 3,
+      "description": "Smoke-test: install a package in dev mode and confirm registry.json has no volatile fields, packagemanagerstate.json has them",
+      "status": "done"
+    }
+  ],
+  "body": "## Goal\nRegistry.json must be git-syncable (no machine-local churn). All volatile/timestamp/flag fields move to ~/.pi/packagemanagerstate.json.\n\n## Already Done\n- constants.ts: added PackageState, ManagerState types + STATE_PATH; removed volatile fields from PackageEntry/Registry\n- registry.ts: added loadState/saveState/getPackageState/setPackageState/removePackageState helpers; removePackage now cleans up state\n- updates.ts: all lastUpdateCheck/updateAvailable reads+writes go through setPackageState/getPackageState\n- git-pool.ts: poolLastUpdateCheck reads/writes go through loadState/saveState\n- index.ts: addPackage calls stripped of volatile fields; setPackageState called after each install; display code reads updateAvailable from getPackageState()\n\n## Remaining\n- Verify TypeScript compiles cleanly\n- Check if any display in index.ts shows installedAt (would need getPackageState too)\n- Confirm registry.json written during tests contains no volatile fields"
+}
